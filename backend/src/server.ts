@@ -1,0 +1,210 @@
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import path from 'path';
+import { connectDB } from './db';
+import fs from 'fs';
+
+dotenv.config();
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Ensure uploads directory exists
+const uploadsDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Serve uploaded files statically
+app.use('/uploads', express.static(uploadsDir));
+
+app.get('/', (req, res) => res.send('API running'));
+
+// Auto-migration: ensure schema is up to date
+async function runMigrations() {
+  const client = await (await import('./db')).default.connect();
+  try {
+    // Ensure UUID extension is available first
+    await client.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+
+    // Fix departments table: ensure id has a UUID default
+    await client.query(`ALTER TABLE departments ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
+    // Add missing columns to departments table
+    await client.query(`ALTER TABLE departments ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+    await client.query(`ALTER TABLE departments ADD COLUMN IF NOT EXISTS description TEXT`);
+
+    // Add missing columns to documents table
+    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_data BYTEA`);
+    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS department VARCHAR(100)`);
+    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS approved_by VARCHAR(150)`);
+    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS rejection_reason TEXT`);
+    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`);
+    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_path TEXT`);
+    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS scanned_from VARCHAR(100)`);
+    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_encrypted BOOLEAN NOT NULL DEFAULT FALSE`);
+    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_at TIMESTAMPTZ`);
+    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`);
+    // Ensure id column has a default UUID generator
+    await client.query(`ALTER TABLE documents ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
+    // Make department_id nullable (we may not always have a matching dept UUID)
+    await client.query(`ALTER TABLE documents ALTER COLUMN department_id DROP NOT NULL`);
+    // Make department nullable too (added by migration, may not have NOT NULL)
+    await client.query(`ALTER TABLE documents ALTER COLUMN department DROP NOT NULL`);
+    // Create document_counters table if missing
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS document_counters (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        department_id UUID NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
+        year          INTEGER NOT NULL,
+        last_number   INTEGER NOT NULL DEFAULT 0,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(department_id, year)
+      )
+    `);
+    // Ensure folders table has is_department column
+    try {
+      await client.query(`ALTER TABLE folders ADD COLUMN IF NOT EXISTS is_department BOOLEAN NOT NULL DEFAULT FALSE`);
+    } catch (e) {
+      // ignore
+    }
+    // Create activity_logs_archive table if missing
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS activity_logs_archive (
+        id          UUID PRIMARY KEY,
+        user_id     UUID NOT NULL,
+        user_name   VARCHAR(150) NOT NULL,
+        user_role   VARCHAR(20) NOT NULL,
+        action      VARCHAR(100) NOT NULL,
+        target      VARCHAR(255) NOT NULL,
+        target_type VARCHAR(20) NOT NULL,
+        ip_address  VARCHAR(45),
+        details     TEXT,
+        created_at  TIMESTAMPTZ NOT NULL,
+        archived_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    // Create scan_sessions table for NAPS2 integration
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS scan_sessions (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        title         VARCHAR(255) NOT NULL,
+        format        VARCHAR(20) NOT NULL DEFAULT 'pdf',
+        folder_id     UUID REFERENCES folders(id) ON DELETE SET NULL,
+        user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_name     VARCHAR(150) NOT NULL,
+        department    VARCHAR(100),
+        status        VARCHAR(20) NOT NULL DEFAULT 'pending',
+        document_id   UUID REFERENCES documents(id) ON DELETE SET NULL,
+        error_message TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        completed_at  TIMESTAMPTZ
+      )
+    `);
+
+    // Migration: Add soft delete columns to folders table
+    await client.query(`ALTER TABLE folders ADD COLUMN IF NOT EXISTS trashed_at TIMESTAMPTZ`);
+    await client.query(`ALTER TABLE folders ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_folders_trashed_at ON folders(trashed_at) WHERE trashed_at IS NOT NULL`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_folders_status ON folders(status)`);
+
+    // Migration: Add soft delete columns to users table
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS trashed_at TIMESTAMPTZ`);
+    await client.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_status_check`);
+    await client.query(`ALTER TABLE users ADD CONSTRAINT users_status_check CHECK (status IN ('active', 'inactive', 'trashed'))`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_users_trashed_at ON users(trashed_at) WHERE trashed_at IS NOT NULL`);
+
+    // Migration: Add trashed_by column to documents table
+    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_by UUID REFERENCES users(id) ON DELETE SET NULL`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_documents_trashed_retention ON documents(trashed_at) WHERE status = 'trashed'`);
+    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS retention_days INT`);
+
+    // Migration: Create trash_history audit table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS trash_history (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        target_type VARCHAR(20) NOT NULL CHECK (target_type IN ('document', 'folder', 'user')),
+        target_id UUID NOT NULL,
+        target_name VARCHAR(255) NOT NULL,
+        action VARCHAR(20) NOT NULL CHECK (action IN ('trashed', 'restored', 'permanently_deleted')),
+        performed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        performed_by_name VARCHAR(150),
+        retention_days INTEGER DEFAULT 30,
+        scheduled_deletion_at TIMESTAMPTZ,
+        actual_deletion_at TIMESTAMPTZ,
+        metadata JSONB DEFAULT '{}',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_trash_history_target ON trash_history(target_type, target_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_trash_history_created ON trash_history(created_at)`);
+
+    // Migration: Create app_settings table for logo and other settings
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        setting_key VARCHAR(100) NOT NULL UNIQUE,
+        setting_value TEXT,
+        setting_type VARCHAR(50) DEFAULT 'text',
+        updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // Insert default logo setting if not exists
+    await client.query(`
+      INSERT INTO app_settings (setting_key, setting_value, setting_type)
+      VALUES ('app_logo', '/maptechlogo.png', 'image')
+      ON CONFLICT (setting_key) DO NOTHING
+    `);
+
+    console.log('Migrations applied successfully');
+  } catch (e: any) {
+    console.warn('Migration warning:', e?.message || e);
+  } finally {
+    client.release();
+  }
+}
+
+import authRoutes from './routes/auth.routes';
+import documentRoutes from './routes/document.routes';
+import folderRoutes from './routes/folder.routes';
+import departmentRoutes from './routes/department.routes';
+import userRoutes from './routes/user.routes';
+import notificationRoutes from './routes/notification.routes';
+import deleteRequestRoutes from './routes/delete-request.routes';
+import activityLogRoutes from './routes/activity-log.routes';
+import scannerRoutes from './routes/scanner.routes';
+import cleanupRoutes from './routes/cleanup.routes';
+import settingsRoutes from './routes/settings.routes';
+import scanWatcher from './services/scanWatcher.service';
+import cleanupService from './services/cleanup.service';
+
+app.use('/api/auth', authRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/folders', folderRoutes);
+app.use('/api/departments', departmentRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/delete-requests', deleteRequestRoutes);
+app.use('/api/activity-logs', activityLogRoutes);
+app.use('/api/scanner', scannerRoutes);
+app.use('/api/cleanup', cleanupRoutes);
+app.use('/api/settings', settingsRoutes);
+
+const PORT = process.env.PORT || 5000;
+
+connectDB().then(async () => {
+  await runMigrations();
+  // Start the cleanup service
+  cleanupService.start();
+  // Start the scan file watcher
+  scanWatcher.startScanWatcher();
+  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+});
+
+export default app;

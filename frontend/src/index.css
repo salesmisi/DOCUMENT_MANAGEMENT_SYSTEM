@@ -1,0 +1,396 @@
+/* @import url() FONT IMPORTS MUST ALWAYS BE AT THE VERY TOP OF THIS FILE, ABOVE THE TAILWIND IMPORTS — DO NOT DELETE THIS COMMENT */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* CRITICAL: THE FOLLOWING TAILWIND IMPORTS MUST NEVER BE DELETED OR REORDERED — DO NOT DELETE THIS COMMENT */
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* END TAILWIND IMPORTS — ALL OTHER CSS MUST GO BELOW THIS LINE */
+
+* {
+  box-sizing: border-box;
+}
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #F2E3BB;
+  margin: 0;
+  padding: 0;
+}
+.dark body,
+body.dark {
+  background-color: #121212;
+  color: #e4e4e4;
+}
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+.dark ::-webkit-scrollbar-track {
+  background: #2a2a2a;
+}
+::-webkit-scrollbar-thumb {
+  background: #427A43;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #005F02;
+}
+/* Line clamp utility */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* Smooth transitions */
+* {
+  transition-property: color, background-color, border-color, opacity, box-shadow, transform;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+button, a, input, select, textarea {
+  transition-duration: 150ms;
+}
+
+/* ========== DARK MODE GLOBAL OVERRIDES ========== */
+
+/* --- Backgrounds --- */
+.dark .bg-white {
+  background-color: #1e1e1e;
+}
+.dark .bg-gray-50 {
+  background-color: #1a1a1a;
+}
+.dark .bg-gray-100 {
+  background-color: #232323;
+}
+.dark .bg-gray-200 {
+  background-color: #2a2a2a;
+}
+.dark .bg-\[\#EEEEEE\],
+.dark .bg-\[\#F5F5F5\],
+.dark .bg-\[\#F9FAFB\] {
+  background-color: #121212;
+}
+.dark .bg-\[\#F2E3BB\] {
+  background-color: #2d2a1f;
+}
+.dark .bg-\[\#F0FDF4\] {
+  background-color: #0d2818;
+}
+.dark .hover\:bg-\[\#F2E3BB\]:hover {
+  background-color: #2d2a1f;
+}
+.dark .hover\:bg-\[\#F0FDF4\]:hover {
+  background-color: #0d2818;
+}
+.dark .bg-white\/95 {
+  background-color: rgba(30, 30, 30, 0.95);
+}
+.dark .bg-white\/10 {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+.dark .after\:bg-white::after {
+  background-color: #888888;
+}
+.dark .hover\:bg-gray-50:hover {
+  background-color: #252525;
+}
+.dark .hover\:bg-gray-100:hover {
+  background-color: #2a2a2a;
+}
+.dark .hover\:bg-gray-200:hover {
+  background-color: #333333;
+}
+
+/* --- Text colors --- */
+.dark .text-gray-900 {
+  color: #e4e4e4;
+}
+.dark .text-gray-800 {
+  color: #dcdcdc;
+}
+.dark .text-gray-700 {
+  color: #c8c8c8;
+}
+.dark .text-gray-600 {
+  color: #b0b0b0;
+}
+.dark .text-gray-500 {
+  color: #9a9a9a;
+}
+.dark .text-gray-400 {
+  color: #888888;
+}
+.dark .text-black {
+  color: #e4e4e4;
+}
+
+/* --- Borders --- */
+.dark .border-gray-100 {
+  border-color: #2a2a2a;
+}
+.dark .border-gray-200 {
+  border-color: #333333;
+}
+.dark .border-gray-300 {
+  border-color: #444444;
+}
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #333333;
+}
+
+/* --- Form elements --- */
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #2a2a2a;
+  color: #e4e4e4;
+  border-color: #444444;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #777777;
+}
+.dark input:focus,
+.dark select:focus,
+.dark textarea:focus {
+  border-color: #427A43;
+  outline-color: #427A43;
+}
+
+/* --- Tables --- */
+.dark table {
+  color: #e4e4e4;
+}
+.dark thead {
+  background-color: #1a1a1a;
+}
+.dark th {
+  color: #b0b0b0;
+  border-color: #333333;
+}
+.dark td {
+  border-color: #2a2a2a;
+}
+.dark tbody tr:hover {
+  background-color: #252525;
+}
+.dark .even\:bg-gray-50:nth-child(even) {
+  background-color: #1a1a1a;
+}
+
+/* --- Shadows --- */
+.dark .shadow,
+.dark .shadow-sm,
+.dark .shadow-md,
+.dark .shadow-lg,
+.dark .shadow-xl {
+  --tw-shadow-color: rgba(0, 0, 0, 0.4);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* ========== FOLDER TREE (ft-*) ========== */
+.ft-container {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.ft-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: calc(100vh - 260px);
+  scrollbar-width: thin;
+  scrollbar-color: #427A43 transparent;
+}
+.ft-node, .ft-children {
+  transition: none;
+}
+/* Row: flexbox, relative for guides */
+.ft-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding-right: 4px;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8125rem;
+}
+/* Vertical guide lines */
+.ft-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: #e5e7eb;
+  pointer-events: none;
+}
+.dark .ft-guide {
+  background-color: #444;
+}
+/* Chevron toggle */
+.ft-chevron {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  color: inherit;
+}
+.ft-chevron:hover {
+  background-color: rgba(0, 0, 0, 0.08);
+}
+.ft-spacer {
+  flex-shrink: 0;
+  width: 16px;
+}
+/* Folder icon */
+.ft-icon {
+  flex-shrink: 0;
+}
+/* Folder name — the critical ellipsis fix */
+.ft-label {
+  flex: 1 1 0%;        /* grow, shrink, basis=0 */
+  min-width: 0;        /* allows shrinking below content width */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  line-height: 1.4;
+}
+/* Inner button wrapping icon+label (DocumentsPage) */
+.ft-name-btn {
+  flex: 1 1 0%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  text-align: left;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+}
+/* Action buttons — visible on hover only */
+.ft-action {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0;
+  color: inherit;
+  transition: opacity 120ms ease;
+}
+.ft-row:hover .ft-action,
+.group:hover .ft-action {
+  opacity: 1;
+}
+
+/* --- Rings --- */
+.dark .ring-1 {
+  --tw-ring-color: #333333;
+}
+.dark .ring-gray-200 {
+  --tw-ring-color: #333333;
+}
+
+/* --- Scrollbar in dark mode --- */
+.dark ::-webkit-scrollbar-thumb {
+  background: #555555;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #666666;
+}
+
+/* --- Cards / panels with inline white bg --- */
+.dark [style*="background-color: white"],
+.dark [style*="background-color: #fff"],
+.dark [style*="background-color: #ffffff"],
+.dark [style*="backgroundColor: 'white'"] {
+  background-color: #1e1e1e !important;
+}
+
+/* --- Specific component overrides --- */
+.dark .bg-green-50 {
+  background-color: #0d2818;
+}
+.dark .bg-green-100 {
+  background-color: #0f3520;
+}
+.dark .bg-red-50 {
+  background-color: #2a1215;
+}
+.dark .bg-red-100 {
+  background-color: #3b1519;
+}
+.dark .bg-yellow-50 {
+  background-color: #2a2210;
+}
+.dark .bg-yellow-100 {
+  background-color: #352b12;
+}
+.dark .bg-blue-50 {
+  background-color: #0d1a2a;
+}
+.dark .bg-blue-100 {
+  background-color: #102035;
+}
+.dark .bg-purple-50 {
+  background-color: #1a0d2a;
+}
+.dark .bg-purple-100 {
+  background-color: #201035;
+}
+.dark .bg-indigo-50 {
+  background-color: #0d0d2a;
+}
+.dark .bg-indigo-100 {
+  background-color: #101035;
+}
+.dark .bg-orange-50 {
+  background-color: #2a1a0d;
+}
+.dark .bg-orange-100 {
+  background-color: #352010;
+}
+
+/* --- Placeholder text for dark inputs --- */
+.dark .placeholder-gray-400::placeholder,
+.dark .placeholder-gray-500::placeholder {
+  color: #666666;
+}
+
+/* --- Focus ring adjustments --- */
+.dark .focus\:ring-green-500:focus {
+  --tw-ring-color: #427A43;
+}
+.dark .focus\:border-green-500:focus {
+  border-color: #427A43;
+}
