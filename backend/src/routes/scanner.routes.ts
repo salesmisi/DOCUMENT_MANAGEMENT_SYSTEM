@@ -11,7 +11,12 @@ router.get('/naps2/status', authenticate, scannerController.checkNaps2Installati
 router.get('/devices', authenticate, scannerController.listScanners);
 
 // Start a new scan with real-time device refresh
-router.post('/scan', authenticate, async (req, res, next) => {
+// Extend req type to include scannerDevices
+interface ScannerDevicesRequest extends express.Request {
+	scannerDevices?: any;
+}
+
+router.post('/scan', authenticate, async (req: ScannerDevicesRequest, res) => {
 	try {
 		// Always refresh device list before scan
 		const naps2Exists = require('fs').existsSync(process.env.NAPS2_PATH || 'C:\\Program Files\\NAPS2\\NAPS2.Console.exe');
@@ -25,9 +30,11 @@ router.post('/scan', authenticate, async (req, res, next) => {
 		// Optionally, attach device list to request for downstream use
 		req.scannerDevices = allDevices;
 		// Continue to original scan handler
-		return scannerController.startScan(req, res, next);
+		return scannerController.startScan(req, res);
 	} catch (err) {
-		return res.status(500).json({ error: 'Failed to refresh scanner devices: ' + (err.message || err) });
+		let message = 'Failed to refresh scanner devices';
+		if (err instanceof Error) message += ': ' + err.message;
+		return res.status(500).json({ error: message });
 	}
 });
 

@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import pool from '../db';
 import { AuthRequest } from '../middleware/auth.middleware';
-import { pool as notificationPool } from '../db';
 // Import notification helpers
 import { createNotification } from './notification.controller';
 

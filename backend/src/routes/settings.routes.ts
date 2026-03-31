@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { getLogo, uploadLogo, resetLogo, updateLogoSize } from '../controllers/settings.controller';
+import { getLogo, uploadLogo, resetLogo, updateLogoSize, getLogoSize } from '../controllers/settings.controller';
 import { authenticate, requireRole } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -39,6 +39,9 @@ const upload = multer({
 
 // Public route - get logo (no auth required)
 router.get('/logo', getLogo);
+
+// Public route - get logo size (no auth required)
+router.get('/logo/size', getLogoSize);
 
 // Protected routes - admin only
 router.post('/logo', authenticate, requireRole(['admin']), upload.single('logo'), uploadLogo);

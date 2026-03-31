@@ -194,11 +194,17 @@ export const deleteFolder = async (req: AuthRequest, res: Response) => {
       );
     }
 
+    // Lookup userName for trash_history
+    let userName = null;
+    if (req.userId) {
+      const u = await pool.query('SELECT name FROM users WHERE id = $1', [req.userId]);
+      userName = u.rows[0]?.name || null;
+    }
     // Log to trash_history
     await pool.query(
       `INSERT INTO trash_history (target_type, target_id, target_name, action, performed_by, performed_by_name, scheduled_deletion_at)
        VALUES ('folder', $1, $2, 'trashed', $3, $4, NOW() + INTERVAL '30 days')`,
-      [deleted.id, deleted.name, req.userId, req.userName || 'Unknown']
+      [deleted.id, deleted.name, req.userId, userName || 'Unknown']
     );
 
     // Write an activity log entry for admin
@@ -290,11 +296,17 @@ export const restoreFolder = async (req: AuthRequest, res: Response) => {
       [id]
     );
 
+    // Lookup userName for trash_history
+    let userName = null;
+    if (req.userId) {
+      const u = await pool.query('SELECT name FROM users WHERE id = $1', [req.userId]);
+      userName = u.rows[0]?.name || null;
+    }
     // Log to trash_history
     await pool.query(
       `INSERT INTO trash_history (target_type, target_id, target_name, action, performed_by, performed_by_name, metadata)
        VALUES ('folder', $1, $2, 'restored', $3, $4, $5)`,
-      [restored.id, restored.name, req.userId, req.userName || 'Unknown',
+      [restored.id, restored.name, req.userId, userName || 'Unknown',
        JSON.stringify({ department: restored.department })]
     );
 
@@ -333,11 +345,17 @@ export const permanentlyDeleteFolder = async (req: AuthRequest, res: Response) =
     // Delete the folder itself
     await pool.query('DELETE FROM folders WHERE id = $1', [id]);
 
+    // Lookup userName for trash_history
+    let userName = null;
+    if (req.userId) {
+      const u = await pool.query('SELECT name FROM users WHERE id = $1', [req.userId]);
+      userName = u.rows[0]?.name || null;
+    }
     // Log to trash_history
     await pool.query(
       `INSERT INTO trash_history (target_type, target_id, target_name, action, performed_by, performed_by_name, actual_deletion_at)
        VALUES ('folder', $1, $2, 'permanently_deleted', $3, $4, NOW())`,
-      [folder.id, folder.name, req.userId, req.userName || 'Unknown']
+      [folder.id, folder.name, req.userId, userName || 'Unknown']
     );
 
     res.json({ message: 'Folder permanently deleted' });

@@ -5,7 +5,9 @@ import cleanupService from '../services/cleanup.service';
 const router = express.Router();
 
 // Get scheduled deletions (preview)
-router.get('/scheduled', authenticate, async (req, res) => {
+import { AuthRequest } from '../middleware/auth.middleware';
+
+router.get('/scheduled', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
     const scheduled = await cleanupService.getScheduledDeletions();
     res.json(scheduled);
@@ -15,10 +17,10 @@ router.get('/scheduled', authenticate, async (req, res) => {
 });
 
 // Manually trigger cleanup (admin only)
-router.post('/run', authenticate, async (req, res) => {
+router.post('/run', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
     // Check if user is admin (you may need to add this check based on your auth system)
-    if (req.user && req.user.role !== 'admin') {
+    if (req.userRole !== 'admin') {
       return res.status(403).json({ error: 'Only admins can manually trigger cleanup' });
     }
 

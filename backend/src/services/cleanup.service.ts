@@ -1,10 +1,10 @@
 import pool from '../db';
-import cron from 'node-cron';
+import cron, { ScheduledTask } from 'node-cron';
 
 export class CleanupService {
   private static instance: CleanupService;
   private isRunning = false;
-  private cronJob: cron.ScheduledTask | null = null;
+  private cronJob: ScheduledTask | null = null;
 
   private constructor() {}
 

@@ -1,3 +1,16 @@
+// Get current logo size
+export const getLogoSize = async (req: Request, res: Response) => {
+  try {
+    const sizeResult = await pool.query(
+      `SELECT setting_value FROM app_settings WHERE setting_key = 'logo_size'`
+    );
+    const size = sizeResult.rows.length > 0 ? sizeResult.rows[0].setting_value : 'medium';
+    res.json({ size });
+  } catch (error) {
+    console.error('Error fetching logo size:', error);
+    res.status(500).json({ message: 'Failed to fetch logo size' });
+  }
+};
 import { Request, Response } from 'express';
 import pool from '../db';
 import path from 'path';
