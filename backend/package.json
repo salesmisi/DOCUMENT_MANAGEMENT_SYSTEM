@@ -2,12 +2,12 @@
   "name": "backend",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "dist/server.js",
   "scripts": {
-    "dev": "node server.js",
-    "build": "vite build",
-    "preview": "vite preview",
-    "start": "vite preview --host 0.0.0.0 --port $PORT"
+    "dev": "ts-node src/server.ts",
+    "build": "tsc",
+    "prestart": "npm run build",
+    "start": "node dist/server.js"
   },
   "keywords": [],
   "author": "",
@@ -45,10 +45,5 @@
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"
-  },
-  "scripts": {
-  "dev": "ts-node server.ts",
-  "build": "tsc",
-  "start": "node dist/server.js"
-}
+  }
 }
