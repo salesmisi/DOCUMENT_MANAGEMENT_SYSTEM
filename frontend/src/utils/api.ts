@@ -11,6 +11,9 @@ export const API_BASE_URL = trimTrailingSlash(
 export const API_ROOT_URL = API_BASE_URL.replace(/\/api$/, '');
 
 export const apiUrl = (path: string) => {
+  if (!path) {
+    return API_BASE_URL;
+  }
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   return `${API_BASE_URL}${normalizedPath}`;
 };
