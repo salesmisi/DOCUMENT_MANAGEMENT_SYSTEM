@@ -150,7 +150,7 @@ export const createDepartment = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Delete a department
+// Delete a department (soft-delete folders and documents to trash)
 export const deleteDepartment = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
@@ -167,24 +167,83 @@ export const deleteDepartment = async (req: AuthRequest, res: Response) => {
 
     const deptName = deptRes.rows[0].name;
 
-    // Proceed with cascade deletion: remove documents, folders, counters, then department
+    // Get user info for trash records
+    let trashedById = req.userId || null;
+    let trashedByName = 'System';
+    if (trashedById) {
+      const userRes = await pool.query('SELECT name FROM users WHERE id = $1', [trashedById]);
+      if (userRes.rows.length > 0) {
+        trashedByName = userRes.rows[0].name;
+      }
+    }
+
+    // Proceed with soft-delete: move documents and folders to trash, then delete department
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
 
-      // Delete documents tied to this department (by name or department_id)
-      const delDocsRes = await client.query(
-        'DELETE FROM documents WHERE department = $1 OR department_id = $2',
-        [deptName, id]
+      // Soft-delete documents tied to this department (move to trash)
+      const trashDocsRes = await client.query(
+        `UPDATE documents
+         SET status = 'trashed', trashed_at = NOW(), trashed_by = $3, department_id = NULL
+         WHERE (department = $1 OR department_id = $2) AND (status != 'trashed' OR trashed_at IS NULL)`,
+        [deptName, id, trashedById]
       );
 
-      // Delete folders that belong to this department (this will cascade to child folders)
-      const delFoldersRes = await client.query('DELETE FROM folders WHERE department = $1', [deptName]);
+      // Clear department_id foreign key for ALL documents in this department (even already trashed ones)
+      await client.query(
+        `UPDATE documents SET department_id = NULL WHERE department_id = $1`,
+        [id]
+      );
 
-      // Delete document counters for this department
+      // Record documents in trash_history
+      const docsToTrash = await client.query(
+        `SELECT id, title FROM documents WHERE department = $1 OR department_id = $2`,
+        [deptName, id]
+      );
+      for (const doc of docsToTrash.rows) {
+        try {
+          await client.query(
+            `INSERT INTO trash_history (target_id, target_type, target_name, action, metadata)
+             VALUES ($1, 'document', $2, 'trashed', $3)`,
+            [doc.id, doc.title, JSON.stringify({ trashed_by: trashedByName, original_location: deptName })]
+          );
+        } catch (insertErr) {
+          // Ignore duplicate insert errors
+          console.log('Skipping duplicate trash_history entry for document:', doc.id);
+        }
+      }
+
+      // Soft-delete folders that belong to this department (move to trash)
+      const trashFoldersRes = await client.query(
+        `UPDATE folders
+         SET status = 'trashed', trashed_at = NOW()
+         WHERE department = $1 AND (status != 'trashed' OR trashed_at IS NULL)`,
+        [deptName]
+      );
+
+      // Record folders in trash_history
+      const foldersToTrash = await client.query(
+        `SELECT id, name FROM folders WHERE department = $1`,
+        [deptName]
+      );
+      for (const folder of foldersToTrash.rows) {
+        try {
+          await client.query(
+            `INSERT INTO trash_history (target_id, target_type, target_name, action, metadata)
+             VALUES ($1, 'folder', $2, 'trashed', $3)`,
+            [folder.id, folder.name, JSON.stringify({ trashed_by: trashedByName, original_location: deptName })]
+          );
+        } catch (insertErr) {
+          // Ignore duplicate insert errors
+          console.log('Skipping duplicate trash_history entry for folder:', folder.id);
+        }
+      }
+
+      // Delete document counters for this department (these can be permanently deleted)
       const delCountersRes = await client.query('DELETE FROM document_counters WHERE department_id = $1', [id]);
 
-      // Finally delete the department
+      // Finally delete the department record
       const delDeptRes = await client.query('DELETE FROM departments WHERE id = $1 RETURNING id', [id]);
 
       if (delDeptRes.rows.length === 0) {
@@ -194,7 +253,7 @@ export const deleteDepartment = async (req: AuthRequest, res: Response) => {
 
       await client.query('COMMIT');
 
-      // Insert activity log after committing transaction to avoid interfering with deletion
+      // Insert activity log after committing transaction
       try {
         let logUserId = req.userId || null;
         let logUserName = 'System';
@@ -219,10 +278,10 @@ export const deleteDepartment = async (req: AuthRequest, res: Response) => {
           }
         }
 
-        const docs = delDocsRes.rowCount || 0;
-        const folders = delFoldersRes.rowCount || 0;
+        const docs = trashDocsRes.rowCount || 0;
+        const folders = trashFoldersRes.rowCount || 0;
         const counters = delCountersRes.rowCount || 0;
-        const details = `Department deleted: ${deptName} — removed ${docs} documents, ${folders} folders, ${counters} counters`;
+        const details = `Department deleted: ${deptName} — moved ${docs} documents and ${folders} folders to trash, removed ${counters} counters`;
 
         const ip = (req.headers && (req.headers['x-forwarded-for'] || req.ip)) || req.ip || null;
 
@@ -241,10 +300,10 @@ export const deleteDepartment = async (req: AuthRequest, res: Response) => {
       }
 
       return res.json({
-        message: 'Department deleted successfully',
-        deleted: {
-          documents: delDocsRes.rowCount || 0,
-          folders: delFoldersRes.rowCount || 0,
+        message: 'Department deleted successfully. Folders and documents moved to trash.',
+        trashed: {
+          documents: trashDocsRes.rowCount || 0,
+          folders: trashFoldersRes.rowCount || 0,
           document_counters: delCountersRes.rowCount || 0
         }
       });

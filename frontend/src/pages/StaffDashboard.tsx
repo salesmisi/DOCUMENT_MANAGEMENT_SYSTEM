@@ -19,8 +19,12 @@ export function StaffDashboard() {
   const { navigate } = useNavigation();
   const { t } = useLanguage();
   const [showUpload, setShowUpload] = useState(false);
+  // Include documents uploaded by user OR shared with user
   const myDocs = documents.filter(
-    (d) => d.uploadedById === user?.id && d.status !== 'trashed'
+    (d) => (d.uploadedById === user?.id || d.isShared) && d.status !== 'trashed'
+  );
+  const sharedWithMe = documents.filter(
+    (d) => d.isShared && d.status !== 'trashed'
   );
   const myPending = myDocs.filter((d) => d.status === 'pending');
   const myApproved = myDocs.filter((d) => d.status === 'approved');

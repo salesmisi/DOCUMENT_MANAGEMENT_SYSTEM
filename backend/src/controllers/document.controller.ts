@@ -170,16 +170,38 @@ export const createDocument = async (req: AuthRequest, res: Response) => {
 // List documents (returns all, frontend filters by role/department)
 export const listDocuments = async (req: AuthRequest, res: Response) => {
   try {
-    const result = await pool.query(
-      `SELECT id, title, department, reference, date, uploaded_by, uploaded_by_id,
-              status, version, file_type, size, folder_id, needs_approval,
-              approved_by, rejection_reason,
-              is_encrypted, trashed_at, archived_at, tags, description,
-              scanned_from, file_path, created_at
-       FROM documents
-       ORDER BY created_at DESC`
+    const userId = req.userId;
+    const userRole = req.userRole;
+
+    console.log('listDocuments called for user:', userId, 'role:', userRole);
+
+    // For admin, return all documents
+    if (userRole === 'admin') {
+      const docsResult = await pool.query(
+        `SELECT d.*,
+          EXISTS (SELECT 1 FROM document_shared_users s WHERE s.document_id = d.id) as is_shared
+         FROM documents d
+         ORDER BY created_at DESC`
+      );
+      return res.json({ documents: docsResult.rows });
+    }
+
+    // For staff/manager: get own docs, department docs, and shared docs
+    const docsResult = await pool.query(
+      `SELECT d.*,
+        EXISTS (SELECT 1 FROM document_shared_users s WHERE s.document_id = d.id AND s.user_id = $1) as is_shared
+       FROM documents d
+       WHERE d.uploaded_by_id = $1
+          OR d.department = (SELECT department FROM users WHERE id = $1)
+          OR EXISTS (SELECT 1 FROM document_shared_users s WHERE s.document_id = d.id AND s.user_id = $1)
+       ORDER BY d.created_at DESC`,
+      [userId]
     );
-    return res.json({ documents: result.rows });
+
+    console.log('Documents found:', docsResult.rows.length);
+    console.log('Shared docs:', docsResult.rows.filter((d: any) => d.is_shared).length);
+
+    return res.json({ documents: docsResult.rows });
   } catch (err: any) {
     console.error('listDocuments error:', err?.message || err);
     return res.status(500).json({ error: 'Server error' });
@@ -521,6 +543,159 @@ export const previewDocument = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// --- Share Document with Users ---
+
+
+export const shareDocument = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params; // document id
+    const { users } = req.body; // [{ userId, role }]
+
+    console.log('shareDocument called for document:', id);
+    console.log('Users to share with:', JSON.stringify(users));
+
+    if (!Array.isArray(users) || users.length === 0) {
+      return res.status(400).json({ error: 'No users provided' });
+    }
+
+    // Get the sharer's info and document title
+    const sharerResult = await pool.query('SELECT name, role FROM users WHERE id = $1', [req.userId]);
+    const sharerName = sharerResult.rows[0]?.name || 'Someone';
+    const sharerRole = sharerResult.rows[0]?.role || 'user';
+
+    const docResult = await pool.query('SELECT title FROM documents WHERE id = $1', [id]);
+    const docTitle = docResult.rows[0]?.title || 'a document';
+
+    // Remove existing shares for this document (optional, or merge logic)
+    await pool.query('DELETE FROM document_shared_users WHERE document_id = $1', [id]);
+
+    // Collect shared user names for activity log
+    const sharedWithNames: string[] = [];
+
+    // Add new shares
+    for (const u of users) {
+      console.log('Inserting share for user:', u.userId, 'document:', id, 'role:', u.role);
+      const insertResult = await pool.query(
+        `INSERT INTO document_shared_users (document_id, user_id, role) VALUES ($1, $2, $3)
+         ON CONFLICT (document_id, user_id) DO UPDATE SET role = EXCLUDED.role
+         RETURNING *`,
+        [id, u.userId, u.role || 'Editor']
+      );
+      console.log('Share inserted:', insertResult.rows[0]);
+
+      // Get the shared user's name for activity log
+      const sharedUserResult = await pool.query('SELECT name FROM users WHERE id = $1', [u.userId]);
+      const sharedUserName = sharedUserResult.rows[0]?.name || 'Unknown';
+      sharedWithNames.push(`${sharedUserName} (${u.role || 'Editor'})`);
+
+      // Create notification for each user
+      try {
+        await pool.query(
+          `INSERT INTO notifications (user_id, type, title, message, document_id)
+           VALUES ($1, 'share', $2, $3, $4)`,
+          [
+            u.userId,
+            `${sharerName} shared "${docTitle}" with you`,
+            `You have been granted ${u.role || 'Editor'} access to "${docTitle}" by ${sharerName}.`,
+            id
+          ]
+        );
+        console.log('Notification inserted for user', u.userId, 'for document', id);
+      } catch (notifErr) {
+        console.error('Failed to insert notification for user', u.userId, notifErr);
+      }
+    }
+
+    // Add activity log entry
+    try {
+      const details = `Shared "${docTitle}" with: ${sharedWithNames.join(', ')}`;
+      await pool.query(
+        `INSERT INTO activity_logs (user_id, user_name, user_role, action, target, target_type, details, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+        [req.userId, sharerName, sharerRole, 'DOCUMENT_SHARED', docTitle, 'document', details]
+      );
+      console.log('Activity log created for document share');
+    } catch (logErr) {
+      console.error('Failed to create activity log for share:', logErr);
+    }
+
+    // Verify shares were saved
+    const verifyResult = await pool.query(
+      'SELECT * FROM document_shared_users WHERE document_id = $1',
+      [id]
+    );
+    console.log('Verified shares in DB:', verifyResult.rows);
+
+    return res.json({ message: 'Document shared successfully' });
+  } catch (err) {
+    console.error('shareDocument error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Get document shares
+export const getDocumentShares = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    console.log('getDocumentShares called for document:', id);
+
+    const result = await pool.query(
+      `SELECT s.user_id, s.role, u.name as user_name, u.email as user_email
+       FROM document_shared_users s
+       INNER JOIN users u ON s.user_id = u.id
+       WHERE s.document_id = $1`,
+      [id]
+    );
+
+    console.log('Shares found:', result.rows);
+    return res.json({ shares: result.rows });
+  } catch (err) {
+    console.error('getDocumentShares error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Debug endpoint to check all shares for a user
+export const getMySharedDocuments = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.userId;
+    console.log('getMySharedDocuments called for user:', userId);
+
+    // Check all shares for this user
+    const sharesResult = await pool.query(
+      `SELECT s.*, d.title as document_title
+       FROM document_shared_users s
+       INNER JOIN documents d ON s.document_id = d.id
+       WHERE s.user_id = $1`,
+      [userId]
+    );
+
+    console.log('Shared documents for user:', sharesResult.rows);
+
+    return res.json({
+      userId,
+      shares: sharesResult.rows
+    });
+  } catch (err) {
+    console.error('getMySharedDocuments error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Returns true if user has access to the document (owner or shared)
+export async function userHasDocumentAccess(userId: number, documentId: number): Promise<boolean> {
+  // Check if user is owner
+  const docRes = await pool.query('SELECT * FROM documents WHERE id = $1', [documentId]);
+  if (docRes.rows.length === 0) return false;
+  if (docRes.rows[0].uploaded_by === userId) return true;
+  // Check if user is in shared table
+  const sharedRes = await pool.query(
+    'SELECT 1 FROM document_shared_users WHERE document_id = $1 AND user_id = $2',
+    [documentId, userId]
+  );
+  return sharedRes.rows.length > 0;
+}
+
 export default {
   createDocument,
   listDocuments,
@@ -531,5 +706,8 @@ export default {
   permanentlyDeleteDocument,
   archiveDocument,
   downloadDocument,
-  previewDocument
+  previewDocument,
+  shareDocument,
+  getDocumentShares,
+  getMySharedDocuments
 };
