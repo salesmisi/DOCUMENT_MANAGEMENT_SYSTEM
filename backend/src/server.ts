@@ -28,8 +28,114 @@ app.get('/', (req, res) => res.send('API running'));
 async function runMigrations() {
   const client = await (await import('./db')).default.connect();
   try {
-    // Ensure UUID extension is available first
+    // Ensure UUID functions are available first
     await client.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+    await client.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+
+    // Ensure core tables exist before running ALTER statements against them.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS departments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(100) NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        description TEXT,
+        code VARCHAR(10)
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(150) NOT NULL,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        password VARCHAR(255) NOT NULL,
+        role VARCHAR(20) NOT NULL DEFAULT 'staff' CHECK (role IN ('admin','manager','staff')),
+        department VARCHAR(100) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive','trashed')),
+        avatar TEXT,
+        trashed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS folders (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL,
+        parent_id UUID REFERENCES folders(id) ON DELETE CASCADE,
+        department VARCHAR(100) NOT NULL,
+        is_department BOOLEAN NOT NULL DEFAULT FALSE,
+        created_by VARCHAR(150) NOT NULL,
+        created_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_by_role VARCHAR(20) NOT NULL CHECK (created_by_role IN ('admin','manager','staff')),
+        visibility VARCHAR(20) NOT NULL DEFAULT 'department' CHECK (visibility IN ('private','department','admin-only')),
+        permissions TEXT[] DEFAULT '{}',
+        status VARCHAR(20) DEFAULT 'active',
+        trashed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS documents (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        title VARCHAR(255) NOT NULL,
+        department VARCHAR(100),
+        department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
+        reference VARCHAR(100),
+        date DATE NOT NULL DEFAULT CURRENT_DATE,
+        uploaded_by VARCHAR(150) NOT NULL,
+        uploaded_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','archived','trashed')),
+        version INT NOT NULL DEFAULT 1,
+        file_type VARCHAR(10),
+        size VARCHAR(50),
+        folder_id UUID REFERENCES folders(id) ON DELETE CASCADE,
+        needs_approval BOOLEAN NOT NULL DEFAULT TRUE,
+        approved_by VARCHAR(150),
+        rejection_reason TEXT,
+        metadata JSONB DEFAULT '{}',
+        is_encrypted BOOLEAN NOT NULL DEFAULT FALSE,
+        retention_days INT,
+        trashed_at TIMESTAMPTZ,
+        archived_at TIMESTAMPTZ,
+        trashed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        tags TEXT[] DEFAULT '{}',
+        description TEXT,
+        scanned_from VARCHAR(100),
+        file_data BYTEA,
+        file_path TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS activity_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_name VARCHAR(150) NOT NULL,
+        user_role VARCHAR(20) NOT NULL,
+        action VARCHAR(100) NOT NULL,
+        target VARCHAR(255) NOT NULL,
+        target_type VARCHAR(20) NOT NULL CHECK (target_type IN ('document','folder','user','system')),
+        ip_address VARCHAR(45),
+        details TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type VARCHAR(50) NOT NULL DEFAULT 'approval',
+        title VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        document_id UUID REFERENCES documents(id) ON DELETE CASCADE,
+        is_read BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
 
     // Fix departments table: ensure id has a UUID default
     await client.query(`ALTER TABLE departments ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
