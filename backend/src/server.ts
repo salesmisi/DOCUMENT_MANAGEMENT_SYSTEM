@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import bcrypt from 'bcrypt';
 import { connectDB } from './db';
 import fs from 'fs';
 
@@ -276,6 +277,36 @@ async function runMigrations() {
   }
 }
 
+async function ensureDefaultAdmin() {
+  const client = await (await import('./db')).default.connect();
+  try {
+    const email = process.env.ADMIN_EMAIL || 'admin@system.com';
+    const name = process.env.ADMIN_NAME || 'System Administrator';
+    const password = process.env.ADMIN_PASSWORD || 'admin123';
+    const department = process.env.ADMIN_DEPARTMENT || 'Administration';
+    const hash = await bcrypt.hash(password, 10);
+
+    await client.query(
+      `INSERT INTO users (name, email, password, role, department, status)
+       VALUES ($1, $2, $3, 'admin', $4, 'active')
+       ON CONFLICT (email)
+       DO UPDATE SET
+         name = EXCLUDED.name,
+         password = EXCLUDED.password,
+         role = 'admin',
+         department = EXCLUDED.department,
+         status = 'active'`,
+      [name, email, hash, department]
+    );
+
+    console.log(`Default admin ensured for ${email}`);
+  } catch (e: any) {
+    console.warn('Default admin bootstrap warning:', e?.message || e);
+  } finally {
+    client.release();
+  }
+}
+
 import authRoutes from './routes/auth.routes';
 import documentRoutes from './routes/document.routes';
 import folderRoutes from './routes/folder.routes';
@@ -306,6 +337,7 @@ const PORT = process.env.PORT || 5000;
 
 connectDB().then(async () => {
   await runMigrations();
+  await ensureDefaultAdmin();
   // Start the cleanup service
   cleanupService.start();
   // Start the scan file watcher
