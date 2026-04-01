@@ -96,44 +96,7 @@ export function ScannerDashboard() {
 
   const API_BASE = 'http://localhost:5000/api';
 
-  const visibleFolders = React.useMemo(() => {
-    if (!user) return [];
-    if (user.role === 'admin') return folders;
-
-    // Build a set of visible folder IDs including descendants
-    const visibleIds = new Set<string>();
-
-    // First pass: find all directly visible root/parent folders
-    const directlyVisible = folders.filter((folder) => {
-      const vis = (folder as any).visibility || 'private';
-      if (vis === 'admin-only') return false;
-      if (user.role === 'manager') {
-        return String(folder.department || '').trim().toLowerCase() === String(user.department || '').trim().toLowerCase();
-      }
-      if (user.role === 'staff') {
-        if (vis === 'department' && String(folder.department || '').trim().toLowerCase() === String(user.department || '').trim().toLowerCase()) return true;
-        if (vis === 'private' && folder.createdById === user.id) return true;
-        return false;
-      }
-      return false;
-    });
-
-    directlyVisible.forEach((f) => visibleIds.add(f.id));
-
-    // Second pass: recursively add all descendants of visible folders
-    const addDescendants = (parentId: string) => {
-      folders.forEach((f) => {
-        if (f.parentId === parentId && !visibleIds.has(f.id)) {
-          visibleIds.add(f.id);
-          addDescendants(f.id);
-        }
-      });
-    };
-
-    directlyVisible.forEach((f) => addDescendants(f.id));
-
-    return folders.filter((f) => visibleIds.has(f.id));
-  }, [folders, user]);
+  const visibleFolders = React.useMemo(() => folders, [folders]);
 
   const rootFolders = visibleFolders.filter((f) => f.parentId === null);
 

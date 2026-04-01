@@ -1,8 +1,8 @@
 import chokidar from 'chokidar';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 import pool from '../db';
-import { v4 as uuidv4 } from 'uuid';
 import { processScannedImage, processScannedImageFast } from './imageProcessing.service';
 
 // Store pending scan sessions waiting for files
@@ -425,7 +425,7 @@ async function generateUniqueReferenceOptimized(department: string, departmentId
     const reference = await generateUniqueReferenceOptimized(pendingScan.department, pendingScan.departmentId);
 
     // Insert document using optimized method
-    const docId = uuidv4();
+    const docId = randomUUID();
     const document = await createDocumentOptimized({
       docId,
       title: pendingScan.title,

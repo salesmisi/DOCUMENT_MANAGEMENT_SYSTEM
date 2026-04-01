@@ -1,64 +1,114 @@
 import React, { useState, useEffect } from 'react';
-import { XIcon, FolderPlusIcon } from 'lucide-react';
+import { XIcon, FolderIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useDocuments } from '../context/DocumentContext';
+import { useDocuments, Folder } from '../context/DocumentContext';
 
-interface CreateFolderModalProps {
+interface EditFolderModalProps {
+  folder: Folder;
   onClose: () => void;
-  parentFolderId?: string | null;
+  onSave: (folderId: string, updates: Partial<Folder>) => void;
 }
 
-export function CreateFolderModal({
+export function EditFolderModal({
+  folder,
   onClose,
-  parentFolderId = null
-}: CreateFolderModalProps) {
+  onSave
+}: EditFolderModalProps) {
   const { user } = useAuth();
-  const { folders, addFolder, addLog } = useDocuments();
-
-  const visibleFolders = React.useMemo(() => folders, [folders]);
-
-  const defaultVisibility = user?.role === 'admin' ? 'admin-only' : user?.role === 'staff' ? 'private' : 'department';
+  const { folders, addLog } = useDocuments();
 
   const [formData, setFormData] = useState({
-    name: '',
-    parentId: parentFolderId,
-    visibility: defaultVisibility
+    name: folder.name,
+    parentId: folder.parentId,
+    visibility: (folder as any).visibility || 'department'
   });
 
-  // Update parentId when prop changes
+  // Update form when folder changes
   useEffect(() => {
-    setFormData(prev => ({ ...prev, parentId: parentFolderId }));
-  }, [parentFolderId]);
+    setFormData({
+      name: folder.name,
+      parentId: folder.parentId,
+      visibility: (folder as any).visibility || 'department'
+    });
+  }, [folder]);
+
+  // Get available parent folders (exclude self and descendants)
+  const getDescendantIds = (folderId: string): Set<string> => {
+    const ids = new Set<string>();
+    const addDescendants = (parentId: string) => {
+      folders.forEach(f => {
+        if (f.parentId === parentId && !ids.has(f.id)) {
+          ids.add(f.id);
+          addDescendants(f.id);
+        }
+      });
+    };
+    addDescendants(folderId);
+    return ids;
+  };
+
+  const descendantIds = getDescendantIds(folder.id);
+
+  const availableParentFolders = React.useMemo(() => {
+    if (!user) return [];
+
+    // Filter out current folder and its descendants
+    let available = folders.filter(f =>
+      f.id !== folder.id && !descendantIds.has(f.id)
+    );
+
+    // Filter by user role visibility
+    if (user.role === 'admin') return available;
+    if (user.role === 'manager') {
+      return available.filter(f => f.department === user.department);
+    }
+    // Staff can see folders they created or locked folders in their department
+    return available.filter(f => {
+      const createdByRole = (f as any).createdByRole;
+      const isDepartment = (f as any).isDepartment;
+      return f.createdById === user.id ||
+             (f.department === user.department && (createdByRole === 'admin' || createdByRole === 'manager' || isDepartment));
+    });
+  }, [folders, user, folder.id, descendantIds]);
+
+  // Get parent folder name for display
+  const parentFolder = folder.parentId ? folders.find(f => f.id === folder.parentId) : null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
-    addFolder({
-      name: formData.name,
-      parentId: formData.parentId,
-      department: user.department,
-      createdBy: user.name,
-      createdById: user.id,
-      createdByRole: user.role as 'admin' | 'manager' | 'staff',
-      visibility: formData.visibility,
-      permissions: ['admin', 'manager', 'staff']
-    });
+    if (!user || !formData.name.trim()) return;
+
+    const updates: Partial<Folder> = {
+      name: formData.name.trim()
+    };
+
+    // Only admin can change visibility
+    if (user.role === 'admin') {
+      (updates as any).visibility = formData.visibility;
+    }
+
+    // Allow changing parent if not a department folder
+    if (!(folder as any).isDepartment) {
+      updates.parentId = formData.parentId;
+    }
+
+    onSave(folder.id, updates);
+
     addLog({
       userId: user.id,
       userName: user.name,
       userRole: user.role,
-      action: 'FOLDER_CREATED',
+      action: 'FOLDER_UPDATED',
       target: formData.name,
       targetType: 'folder',
       timestamp: new Date().toISOString(),
       ipAddress: '192.168.1.100'
     });
+
     onClose();
-    setFormData({ name: '', parentId: null, visibility: defaultVisibility });
   };
 
-  // Get parent folder name for display
-  const parentFolder = parentFolderId ? folders.find(f => f.id === parentFolderId) : null;
+  const isDepartmentFolder = (folder as any).isDepartment === true;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -67,10 +117,10 @@ export function CreateFolderModal({
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-[#404040]">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-[#F2E3BB] dark:bg-[#005F02]/30 rounded-lg flex items-center justify-center">
-              <FolderPlusIcon className="text-[#005F02]" size={24} />
+              <FolderIcon className="text-[#005F02]" size={24} />
             </div>
             <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200">
-              Create Folder
+              Edit Folder
             </h2>
           </div>
           <button
@@ -100,17 +150,18 @@ export function CreateFolderModal({
               className="w-full px-4 py-2.5 border border-gray-300 dark:border-[#404040] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005F02]/50 focus:border-[#005F02] bg-white dark:bg-[#1e1e1e] text-gray-800 dark:text-gray-200"
               placeholder="Enter folder name"
               required
+              autoFocus
             />
           </div>
 
-          {/* Parent Folder - Show as read-only if parentFolderId is provided */}
+          {/* Parent Folder */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Parent Folder
             </label>
-            {parentFolderId ? (
-              <div className="w-full px-4 py-2.5 border border-gray-200 dark:border-[#404040] rounded-lg text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-[#1e1e1e]">
-                {parentFolder?.name || 'Selected Folder'}
+            {isDepartmentFolder ? (
+              <div className="w-full px-4 py-2.5 border border-gray-200 dark:border-[#404040] rounded-lg text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-[#1e1e1e]">
+                Root (Department folders cannot be moved)
               </div>
             ) : (
               <select
@@ -124,22 +175,22 @@ export function CreateFolderModal({
                 className="w-full px-4 py-2.5 border border-gray-300 dark:border-[#404040] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005F02]/50 focus:border-[#005F02] bg-white dark:bg-[#1e1e1e] text-gray-800 dark:text-gray-200"
               >
                 <option value="">Root (No parent)</option>
-                {visibleFolders.map((folder) => (
-                  <option key={folder.id} value={folder.id}>
-                    {folder.name}
+                {availableParentFolders.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
                   </option>
                 ))}
               </select>
             )}
           </div>
 
-          {/* Department (fixed to user's department) */}
+          {/* Department (read-only) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Department
             </label>
             <div className="w-full px-4 py-2.5 border border-gray-200 dark:border-[#404040] rounded-lg text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-[#1e1e1e]">
-              {user?.department || 'Unassigned'}
+              {folder.department || 'Unassigned'}
             </div>
           </div>
 
@@ -172,10 +223,10 @@ export function CreateFolderModal({
             </button>
             <button
               type="submit"
-              disabled={!formData.name}
+              disabled={!formData.name.trim()}
               className="flex-1 px-4 py-2.5 bg-[#005F02] text-white rounded-lg hover:bg-[#427A43] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Create Folder
+              Save Changes
             </button>
           </div>
         </form>

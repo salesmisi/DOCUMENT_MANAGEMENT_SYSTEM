@@ -1,7 +1,7 @@
 import type { Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import pool from '../db';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { exec, execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
@@ -362,7 +362,7 @@ async function createScannedDocument(params: {
   const fileSizeStr = `${(fileSize / 1024 / 1024).toFixed(1)} MB`;
   const relativeFilePath = path.relative(process.cwd(), params.filePath).replace(/\\/g, '/');
   const reference = await generateUniqueReference(params.department, params.departmentId);
-  const docId = uuidv4();
+  const docId = randomUUID();
 
   const insertRes = await pool.query(`
     INSERT INTO documents (
@@ -525,9 +525,10 @@ export const startScan = async (req: AuthRequest, res: Response) => {
           return res.status(403).json({ error: 'You do not have access to this scan batch' });
         }
       } else {
-        batchId = uuidv4();
+        const newBatchId = randomUUID();
+        batchId = newBatchId;
         scanWatcher.createMultiPageBatch({
-          batchId,
+          batchId: newBatchId,
           title,
           format: 'pdf',
           folderId: folderId || '',
@@ -540,7 +541,7 @@ export const startScan = async (req: AuthRequest, res: Response) => {
     }
 
     // Create scan session in database
-    const sessionId = uuidv4();
+    const sessionId = randomUUID();
     await pool.query(`
       INSERT INTO scan_sessions (id, title, format, folder_id, user_id, user_name, department, status, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', NOW())

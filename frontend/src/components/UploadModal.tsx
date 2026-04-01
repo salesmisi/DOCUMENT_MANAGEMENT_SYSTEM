@@ -38,17 +38,7 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [departments, setDepartments] = React.useState<Array<{id: string; name: string}>>([]);
 
-  const visibleFolders = React.useMemo(() => {
-    if (!user) return [];
-    if (user.role === 'admin') return folders;
-    return folders.filter((folder) => {
-      const vis = (folder as any).visibility || 'private';
-      if (vis === 'admin-only') return false;
-      if (user.role === 'manager') return folder.department === user.department;
-      if (user.role === 'staff') return folder.createdById === user.id;
-      return false;
-    });
-  }, [folders, user]);
+  const visibleFolders = React.useMemo(() => folders, [folders]);
   const rootFolders = visibleFolders.filter((f) => f.parentId === null);
   const subFolders = visibleFolders.filter((f) => f.parentId !== null);
 

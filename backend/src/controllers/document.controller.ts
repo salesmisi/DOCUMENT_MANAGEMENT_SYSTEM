@@ -3,7 +3,8 @@ import type { AuthRequest } from '../middleware/auth.middleware';
 import pool from '../db';
 import fs from 'fs';
 import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
+import { restoreDocumentWithHierarchy } from '../services/restore.service';
 
 // Create document with backend-generated reference
 export const createDocument = async (req: AuthRequest, res: Response) => {
@@ -127,7 +128,7 @@ export const createDocument = async (req: AuthRequest, res: Response) => {
       'needs_approval', 'description', 'folder_id', 'size', 'created_at'
     ];
     const vals: any[] = [
-      uuidv4(),
+      randomUUID(),
       title,
       reference,
       docDate,
@@ -281,66 +282,84 @@ export const trashDocument = async (req: AuthRequest, res: Response) => {
 export const restoreDocument = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const documentId = Array.isArray(id) ? id[0] : id;
 
-    // Get document details first
-    const docCheck = await pool.query('SELECT * FROM documents WHERE id = $1', [id]);
+    const docCheck = await pool.query(
+      'SELECT id, title, folder_id, department, status, trashed_at FROM documents WHERE id = $1',
+      [documentId]
+    );
     if (docCheck.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
 
     const doc = docCheck.rows[0];
 
-    // If document has a folder, check if folder exists and is active
-    if (doc.folder_id) {
-      const folderCheck = await pool.query('SELECT * FROM folders WHERE id = $1', [doc.folder_id]);
-
-      if (folderCheck.rows.length === 0) {
-        // Folder no longer exists, set folder_id to null
-        await pool.query('UPDATE documents SET folder_id = NULL WHERE id = $1', [id]);
-      } else {
-        const folder = folderCheck.rows[0];
-        // If folder is trashed, restore it first
-        if (folder.status === 'trashed') {
-          await pool.query(
-            `UPDATE folders SET status = 'active', trashed_at = NULL WHERE id = $1`,
-            [folder.id]
-          );
-        }
-      }
+    if (doc.status !== 'trashed') {
+      return res.json({
+        message: 'Document is already active',
+        document: doc
+      });
     }
 
-    // If document belongs to a department, ensure department folder exists
-    if (doc.department) {
-      const deptFolderCheck = await pool.query(
-        'SELECT * FROM folders WHERE department = $1 AND is_department = TRUE',
-        [doc.department]
+    if (doc.folder_id) {
+      const userId = req.userId;
+      if (!userId) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      const userRes = await pool.query('SELECT name, role FROM users WHERE id = $1', [userId]);
+      if (userRes.rows.length === 0) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      const userName = userRes.rows[0].name;
+      const userRole = userRes.rows[0].role;
+      const ipAddress = (req.headers['x-forwarded-for'] as string) || req.ip || null;
+
+      const hierarchyResult = await restoreDocumentWithHierarchy(
+        documentId,
+        userId,
+        userName,
+        userRole,
+        ipAddress
       );
 
-      // If department folder exists and is trashed, restore it first
-      if (deptFolderCheck.rows.length > 0 && deptFolderCheck.rows[0].status === 'trashed') {
-        await pool.query(
-          `UPDATE folders SET status = 'active', trashed_at = NULL WHERE id = $1`,
-          [deptFolderCheck.rows[0].id]
-        );
+      if (!hierarchyResult.success) {
+        return res.status(400).json({
+          error: hierarchyResult.message,
+          details: hierarchyResult.errors
+        });
       }
+
+      const restoredDocument = await pool.query('SELECT * FROM documents WHERE id = $1', [documentId]);
+
+      return res.json({
+        message: hierarchyResult.message,
+        document: restoredDocument.rows[0],
+        restored: hierarchyResult.restored,
+        auditLogs: hierarchyResult.auditLogs.map(log => ({
+          action: log.type,
+          target: log.targetName
+        }))
+      });
     }
 
-    // Now restore the document
     const result = await pool.query(
       `UPDATE documents SET status = 'approved', trashed_at = NULL, archived_at = NULL WHERE id = $1 RETURNING *`,
-      [id]
+      [documentId]
     );
 
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
-
-    // Log to trash_history
     await pool.query(
       `INSERT INTO trash_history (target_type, target_id, target_name, action, performed_by, metadata)
        VALUES ('document', $1, $2, 'restored', $3, $4)`,
-      [result.rows[0].id, result.rows[0].title, req.userId,
-       JSON.stringify({ department: doc.department })]
+      [
+        result.rows[0].id,
+        result.rows[0].title,
+        req.userId,
+        JSON.stringify({ department: doc.department, hierarchyRestore: false, folderMissing: true })
+      ]
     );
 
     return res.json({
-      message: `Document restored to ${doc.department || 'its'} department`,
+      message: `Document restored, but no original folder was linked.`,
       document: result.rows[0]
     });
   } catch (err: any) {
@@ -696,6 +715,59 @@ export async function userHasDocumentAccess(userId: number, documentId: number):
   return sharedRes.rows.length > 0;
 }
 
+// Restore document with full hierarchy (department → folders → document)
+// POST /documents/:id/restore-hierarchy
+export const restoreDocumentHierarchy = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const documentId = Array.isArray(id) ? id[0] : id;
+    const userId = req.userId;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Get user info for audit logging
+    const userRes = await pool.query('SELECT name, role FROM users WHERE id = $1', [userId]);
+    if (userRes.rows.length === 0) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const userName = userRes.rows[0].name;
+    const userRole = userRes.rows[0].role;
+    const ipAddress = (req.headers['x-forwarded-for'] as string) || req.ip || null;
+
+    // Call the service function to restore with full hierarchy
+    const result = await restoreDocumentWithHierarchy(
+      documentId,
+      userId,
+      userName,
+      userRole,
+      ipAddress
+    );
+
+    if (!result.success) {
+      return res.status(400).json({
+        error: result.message,
+        details: result.errors
+      });
+    }
+
+    return res.json({
+      message: result.message,
+      restored: result.restored,
+      auditLogs: result.auditLogs.map(log => ({
+        action: log.type,
+        target: log.targetName
+      }))
+    });
+
+  } catch (err: any) {
+    console.error('restoreDocumentHierarchy error:', err?.message || err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
+
 export default {
   createDocument,
   listDocuments,
@@ -703,6 +775,7 @@ export default {
   rejectDocument,
   trashDocument,
   restoreDocument,
+  restoreDocumentHierarchy,
   permanentlyDeleteDocument,
   archiveDocument,
   downloadDocument,
