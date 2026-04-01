@@ -29,6 +29,14 @@ app.get('/', (req, res) => res.send('API running'));
 async function runMigrations() {
   const client = await (await import('./db')).default.connect();
   try {
+    const safeQuery = async (sql: string, label: string) => {
+      try {
+        await client.query(sql);
+      } catch (err: any) {
+        console.warn(`Migration warning [${label}]:`, err?.message || err);
+      }
+    };
+
     // Ensure UUID functions are available first
     await client.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
     await client.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
@@ -40,6 +48,7 @@ async function runMigrations() {
         name VARCHAR(100) NOT NULL UNIQUE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         description TEXT,
+        folder_path TEXT,
         code VARCHAR(10)
       )
     `);
@@ -138,29 +147,44 @@ async function runMigrations() {
       )
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS document_shared_users (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role VARCHAR(20) NOT NULL DEFAULT 'viewer',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(document_id, user_id)
+      )
+    `);
+    await safeQuery(`CREATE INDEX IF NOT EXISTS idx_document_shared_users_document ON document_shared_users(document_id)`, 'document_shared_users document index');
+    await safeQuery(`CREATE INDEX IF NOT EXISTS idx_document_shared_users_user ON document_shared_users(user_id)`, 'document_shared_users user index');
+
     // Fix departments table: ensure id has a UUID default
-    await client.query(`ALTER TABLE departments ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
+    await safeQuery(`ALTER TABLE departments ALTER COLUMN id SET DEFAULT gen_random_uuid()`, 'departments.id default');
     // Add missing columns to departments table
-    await client.query(`ALTER TABLE departments ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
-    await client.query(`ALTER TABLE departments ADD COLUMN IF NOT EXISTS description TEXT`);
+    await safeQuery(`ALTER TABLE departments ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`, 'departments.created_at');
+    await safeQuery(`ALTER TABLE departments ADD COLUMN IF NOT EXISTS description TEXT`, 'departments.description');
+    await safeQuery(`ALTER TABLE departments ADD COLUMN IF NOT EXISTS folder_path TEXT`, 'departments.folder_path');
+    await safeQuery(`ALTER TABLE departments ADD COLUMN IF NOT EXISTS code VARCHAR(10)`, 'departments.code');
 
     // Add missing columns to documents table
-    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_data BYTEA`);
-    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS department VARCHAR(100)`);
-    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS approved_by VARCHAR(150)`);
-    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS rejection_reason TEXT`);
-    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`);
-    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_path TEXT`);
-    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS scanned_from VARCHAR(100)`);
-    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_encrypted BOOLEAN NOT NULL DEFAULT FALSE`);
-    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_at TIMESTAMPTZ`);
-    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`);
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_data BYTEA`, 'documents.file_data');
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS department VARCHAR(100)`, 'documents.department');
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS approved_by VARCHAR(150)`, 'documents.approved_by');
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS rejection_reason TEXT`, 'documents.rejection_reason');
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`, 'documents.tags');
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_path TEXT`, 'documents.file_path');
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS scanned_from VARCHAR(100)`, 'documents.scanned_from');
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_encrypted BOOLEAN NOT NULL DEFAULT FALSE`, 'documents.is_encrypted');
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_at TIMESTAMPTZ`, 'documents.trashed_at');
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`, 'documents.archived_at');
     // Ensure id column has a default UUID generator
-    await client.query(`ALTER TABLE documents ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
+    await safeQuery(`ALTER TABLE documents ALTER COLUMN id SET DEFAULT gen_random_uuid()`, 'documents.id default');
     // Make department_id nullable (we may not always have a matching dept UUID)
-    await client.query(`ALTER TABLE documents ALTER COLUMN department_id DROP NOT NULL`);
+    await safeQuery(`ALTER TABLE documents ALTER COLUMN department_id DROP NOT NULL`, 'documents.department_id nullable');
     // Make department nullable too (added by migration, may not have NOT NULL)
-    await client.query(`ALTER TABLE documents ALTER COLUMN department DROP NOT NULL`);
+    await safeQuery(`ALTER TABLE documents ALTER COLUMN department DROP NOT NULL`, 'documents.department nullable');
     // Create document_counters table if missing
     await client.query(`
       CREATE TABLE IF NOT EXISTS document_counters (
@@ -173,11 +197,7 @@ async function runMigrations() {
       )
     `);
     // Ensure folders table has is_department column
-    try {
-      await client.query(`ALTER TABLE folders ADD COLUMN IF NOT EXISTS is_department BOOLEAN NOT NULL DEFAULT FALSE`);
-    } catch (e) {
-      // ignore
-    }
+    await safeQuery(`ALTER TABLE folders ADD COLUMN IF NOT EXISTS is_department BOOLEAN NOT NULL DEFAULT FALSE`, 'folders.is_department');
     // Create activity_logs_archive table if missing
     await client.query(`
       CREATE TABLE IF NOT EXISTS activity_logs_archive (
@@ -213,21 +233,21 @@ async function runMigrations() {
     `);
 
     // Migration: Add soft delete columns to folders table
-    await client.query(`ALTER TABLE folders ADD COLUMN IF NOT EXISTS trashed_at TIMESTAMPTZ`);
-    await client.query(`ALTER TABLE folders ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_folders_trashed_at ON folders(trashed_at) WHERE trashed_at IS NOT NULL`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_folders_status ON folders(status)`);
+    await safeQuery(`ALTER TABLE folders ADD COLUMN IF NOT EXISTS trashed_at TIMESTAMPTZ`, 'folders.trashed_at');
+    await safeQuery(`ALTER TABLE folders ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'`, 'folders.status');
+    await safeQuery(`CREATE INDEX IF NOT EXISTS idx_folders_trashed_at ON folders(trashed_at) WHERE trashed_at IS NOT NULL`, 'folders.trashed_at index');
+    await safeQuery(`CREATE INDEX IF NOT EXISTS idx_folders_status ON folders(status)`, 'folders.status index');
 
     // Migration: Add soft delete columns to users table
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS trashed_at TIMESTAMPTZ`);
-    await client.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_status_check`);
-    await client.query(`ALTER TABLE users ADD CONSTRAINT users_status_check CHECK (status IN ('active', 'inactive', 'trashed'))`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_users_trashed_at ON users(trashed_at) WHERE trashed_at IS NOT NULL`);
+    await safeQuery(`ALTER TABLE users ADD COLUMN IF NOT EXISTS trashed_at TIMESTAMPTZ`, 'users.trashed_at');
+    await safeQuery(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_status_check`, 'users_status_check drop');
+    await safeQuery(`ALTER TABLE users ADD CONSTRAINT users_status_check CHECK (status IN ('active', 'inactive', 'trashed'))`, 'users_status_check add');
+    await safeQuery(`CREATE INDEX IF NOT EXISTS idx_users_trashed_at ON users(trashed_at) WHERE trashed_at IS NOT NULL`, 'users.trashed_at index');
 
     // Migration: Add trashed_by column to documents table
-    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_by UUID REFERENCES users(id) ON DELETE SET NULL`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_documents_trashed_retention ON documents(trashed_at) WHERE status = 'trashed'`);
-    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS retention_days INT`);
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_by UUID REFERENCES users(id) ON DELETE SET NULL`, 'documents.trashed_by');
+    await safeQuery(`CREATE INDEX IF NOT EXISTS idx_documents_trashed_retention ON documents(trashed_at) WHERE status = 'trashed'`, 'documents.trashed retention index');
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS retention_days INT`, 'documents.retention_days');
 
     // Migration: Create trash_history audit table
     await client.query(`
@@ -246,8 +266,8 @@ async function runMigrations() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_trash_history_target ON trash_history(target_type, target_id)`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_trash_history_created ON trash_history(created_at)`);
+    await safeQuery(`CREATE INDEX IF NOT EXISTS idx_trash_history_target ON trash_history(target_type, target_id)`, 'trash_history target index');
+    await safeQuery(`CREATE INDEX IF NOT EXISTS idx_trash_history_created ON trash_history(created_at)`, 'trash_history created index');
 
     // Migration: Create app_settings table for logo and other settings
     await client.query(`
@@ -261,6 +281,26 @@ async function runMigrations() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+
+    // Migration: Create delete_requests table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS delete_requests (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        type VARCHAR(20) NOT NULL CHECK (type IN ('folder','document')),
+        target_id UUID NOT NULL,
+        requested_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        department VARCHAR(100),
+        status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','denied')),
+        reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        approved_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        approved_at TIMESTAMPTZ,
+        denied_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        denied_at TIMESTAMPTZ
+      )
+    `);
+    await safeQuery(`CREATE INDEX IF NOT EXISTS idx_delete_requests_status ON delete_requests(status)`, 'delete_requests status index');
+    await safeQuery(`CREATE INDEX IF NOT EXISTS idx_delete_requests_target ON delete_requests(target_id)`, 'delete_requests target index');
 
     // Insert default logo setting if not exists
     await client.query(`
