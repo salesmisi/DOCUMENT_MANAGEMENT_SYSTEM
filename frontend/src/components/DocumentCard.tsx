@@ -11,8 +11,9 @@ import {
   Trash2Icon,
   EyeIcon,
   EditIcon,
-  DownloadIcon } from
-'lucide-react';
+  DownloadIcon,
+  Share as ShareIcon
+} from 'lucide-react';
 import { Document } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
 import RequestDeleteModal from './RequestDeleteModal';
@@ -80,11 +81,19 @@ export function DocumentCard({
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow duration-200">
       <div className="flex items-start gap-4">
-        {/* File Icon */}
-        <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
-          {fileTypeIcons[document.fileType] ||
-          <FileTextIcon className="text-gray-400" size={24} />
-          }
+        {/* File Icon & Share Button */}
+        <div className="flex flex-col items-center gap-2 flex-shrink-0">
+          <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
+            {fileTypeIcons[document.fileType] || <FileTextIcon className="text-gray-400" size={24} />}
+          </div>
+          {/* Share Icon Button */}
+          <button
+            className="mt-1 p-1 rounded-full hover:bg-gray-200 text-gray-500 hover:text-blue-600 transition-colors"
+            title="Share"
+            onClick={() => alert('Share functionality coming soon!')}
+          >
+            <ShareIcon size={18} />
+          </button>
         </div>
 
         {/* Content */}

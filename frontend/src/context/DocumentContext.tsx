@@ -191,6 +191,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
     tags: d.tags ?? [],
     description: d.description ?? undefined,
     scannedFrom: d.scanned_from ?? d.scannedFrom ?? undefined,
+    isShared: d.is_shared ?? d.isShared ?? false,
   });
 
   // 🔹 LOAD DOCUMENTS FROM BACKEND

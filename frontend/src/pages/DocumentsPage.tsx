@@ -26,6 +26,7 @@ import {
   Lock,
   X
 } from 'lucide-react';
+import { Share as ShareIcon } from 'lucide-react';
 import { useDocuments, Document } from '../context/DocumentContext';
 import { useAuth } from '../context/AuthContext';
 import { UploadModal } from '../components/UploadModal';
@@ -35,6 +36,7 @@ import { useNavigation } from '../App';
 import { useLanguage } from '../context/LanguageContext';
 import { CreateFolderModal } from '../components/CreateFolderModal';
 import { UnifiedSearch } from '../components/UnifiedSearch';
+import { ShareDialog } from '../components/ShareDialog';
 
 // Quick Access folder card component
 interface QuickAccessCardProps {
@@ -282,6 +284,9 @@ export function DocumentsPage() {
   const [requestDeleteModal, setRequestDeleteModal] = useState(false);
   const [deleteModal, setDeleteModal] = useState(false);
   const [deleteFolderId, setDeleteFolderId] = useState<string | null>(null);
+  // Share dialog state
+  const [shareDoc, setShareDoc] = useState<Document | null>(null);
+  const [showShareDialog, setShowShareDialog] = useState(false);
 
   // Sidebar resize state
   const [sidebarWidth, setSidebarWidth] = useState(224);
@@ -335,6 +340,8 @@ export function DocumentsPage() {
     if (user.role === 'admin') return true;
     // Check if user uploaded the document (using uploadedById not uploadedBy)
     if (doc.uploadedById === user.id) return true;
+    // Check if document is shared with the user
+    if (doc.isShared) return true;
     if (user.role === 'manager' && doc.department === user.department) return true;
 
     // Staff access logic
@@ -349,7 +356,22 @@ export function DocumentsPage() {
   const filtered = useMemo(() => {
     let result = activeDocuments.filter(d => hasDocumentAccess(d));
 
-    // Filter by selected folder
+    // For "Shared" tab, show ALL shared documents regardless of folder
+    if (activeTab === 'shared') {
+      result = result.filter(d => d.isShared);
+      // Still apply search filter
+      if (search) {
+        const searchLower = search.toLowerCase();
+        result = result.filter(d =>
+          d.title.toLowerCase().includes(searchLower) ||
+          d.reference?.toLowerCase().includes(searchLower) ||
+          d.department?.toLowerCase().includes(searchLower)
+        );
+      }
+      return result;
+    }
+
+    // Filter by selected folder (only for non-shared tabs)
     if (selectedFolderId) {
       result = result.filter(d => d.folderId === selectedFolderId);
     }
@@ -378,8 +400,6 @@ export function DocumentsPage() {
       result = result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     } else if (activeTab === 'favorites') {
       result = result.filter(d => d.isFavorite);
-    } else if (activeTab === 'shared') {
-      result = result.filter(d => d.isShared);
     }
 
     return result;
@@ -805,6 +825,25 @@ export function DocumentsPage() {
                           >
                             <Download size={16} />
                           </button>
+                          <button
+                            onClick={() => {
+                              setShareDoc(doc);
+                              setShowShareDialog(true);
+                            }}
+                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition-colors"
+                            title="Share"
+                          >
+                            <ShareIcon size={16} />
+                          </button>
+                                {/* Share Dialog Modal */}
+                                {user && (
+                                  <ShareDialog
+                                    isOpen={showShareDialog}
+                                    onClose={() => setShowShareDialog(false)}
+                                    document={shareDoc}
+                                    currentUser={user}
+                                  />
+                                )}
                           {user?.role === 'admin' && (
                             <>
                               <button

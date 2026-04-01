@@ -26,6 +26,8 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
     fileType: 'pdf' as 'pdf' | 'doc' | 'docx' | 'xlsx' | 'jpg' | 'png' | 'tiff' | 'mp4' | 'mov' | 'avi' | 'mkv',
     size: '1.2 MB'
   });
+  const [selectedParentFolderId, setSelectedParentFolderId] = useState<string>('');
+  const [selectedSubfolderId, setSelectedSubfolderId] = useState<string>('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
   const [serverReference, setServerReference] = useState<string | null>(null);
@@ -49,6 +51,62 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
   }, [folders, user]);
   const rootFolders = visibleFolders.filter((f) => f.parentId === null);
   const subFolders = visibleFolders.filter((f) => f.parentId !== null);
+
+  // Get all descendant subfolders (including nested) for the selected parent folder
+  const availableSubfolders = React.useMemo(() => {
+    if (!selectedParentFolderId) return [];
+
+    type FolderWithDepth = typeof visibleFolders[0] & { depth: number; path: string };
+    const result: FolderWithDepth[] = [];
+
+    // Recursive function to get all descendants
+    const getDescendants = (parentId: string, depth: number, parentPath: string) => {
+      const children = visibleFolders.filter((f) => f.parentId === parentId);
+      for (const child of children) {
+        const path = parentPath ? `${parentPath} / ${child.name}` : child.name;
+        result.push({ ...child, depth, path });
+        getDescendants(child.id, depth + 1, path);
+      }
+    };
+
+    getDescendants(selectedParentFolderId, 0, '');
+    return result;
+  }, [visibleFolders, selectedParentFolderId]);
+
+  // Update folderId when parent or subfolder changes
+  React.useEffect(() => {
+    if (selectedSubfolderId) {
+      setForm((prev) => ({ ...prev, folderId: selectedSubfolderId }));
+    } else if (selectedParentFolderId) {
+      setForm((prev) => ({ ...prev, folderId: selectedParentFolderId }));
+    } else {
+      setForm((prev) => ({ ...prev, folderId: '' }));
+    }
+  }, [selectedParentFolderId, selectedSubfolderId]);
+
+  // Initialize from defaultFolderId if provided
+  React.useEffect(() => {
+    if (defaultFolderId && folders.length > 0) {
+      const folder = folders.find((f) => f.id === defaultFolderId);
+      if (folder) {
+        if (folder.parentId) {
+          // It's a subfolder - find the root ancestor
+          let rootId = folder.parentId;
+          let current = folders.find((f) => f.id === rootId);
+          while (current && current.parentId) {
+            rootId = current.parentId;
+            current = folders.find((f) => f.id === rootId);
+          }
+          setSelectedParentFolderId(rootId);
+          setSelectedSubfolderId(folder.id);
+        } else {
+          // It's a root folder
+          setSelectedParentFolderId(folder.id);
+          setSelectedSubfolderId('');
+        }
+      }
+    }
+  }, [defaultFolderId, folders]);
   const API_BASE = (import.meta.env.VITE_API_URL as string) || '';
   const validate = () => {
     const errs: Record<string, string> = {};
@@ -383,36 +441,39 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Save to Folder
+                Department / Folder
               </label>
               <select
-                value={form.folderId}
-                onChange={(e) =>
-                setForm((prev) => ({
-                  ...prev,
-                  folderId: e.target.value
-                }))
-                }
+                value={selectedParentFolderId}
+                onChange={(e) => {
+                  setSelectedParentFolderId(e.target.value);
+                  setSelectedSubfolderId(''); // Reset subfolder when parent changes
+                }}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43]">
-                <option value="">None</option>
-                <optgroup label="Root Folders">
-                  {rootFolders.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="Subfolders">
-                  {subFolders.map((f) => {
-                    const parent = folders.find((p) => p.id === f.parentId);
-                    return (
-                      <option key={f.id} value={f.id}>
-                        {parent?.name} / {f.name}
-                      </option>
-                    );
+                <option value="">Select folder...</option>
+                {rootFolders.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-                  })}
-                </optgroup>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Subfolder (Optional)
+              </label>
+              <select
+                value={selectedSubfolderId}
+                onChange={(e) => setSelectedSubfolderId(e.target.value)}
+                disabled={!selectedParentFolderId}
+                className={`w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] ${!selectedParentFolderId ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : ''}`}>
+                <option value="">Save in department root</option>
+                {availableSubfolders.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {'—'.repeat(f.depth)} {f.depth > 0 ? ' ' : ''}{f.name}
+                  </option>
+                ))}
               </select>
             </div>
 
