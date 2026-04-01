@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { FileText, Film, Maximize2, Minimize2, X, Hash, Building2, User, Calendar, FileType, Clock } from 'lucide-react';
+import { apiUrl } from '../utils/api';
 
 interface Props {
   doc?: any;
@@ -122,7 +123,7 @@ const FilePreview: React.FC<Props> = ({ doc }) => {
     const fetchPreview = async () => {
       try {
         const token = localStorage.getItem('dms_token');
-        const res = await fetch(`http://localhost:5000/api/documents/${doc.id}/preview`, {
+        const res = await fetch(apiUrl(`/documents/${doc.id}/preview`), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (aborted) return;

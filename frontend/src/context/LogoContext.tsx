@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { apiUrl, assetUrl } from '../utils/api';
 
 export type LogoSize = 'small' | 'medium' | 'large';
 
@@ -20,7 +21,7 @@ interface LogoContextType {
 
 const LogoContext = createContext<LogoContextType | undefined>(undefined);
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = apiUrl('');
 
 export function LogoProvider({ children }: { children: React.ReactNode }) {
   const [logo, setLogo] = useState<string>('/maptechlogo.png');
@@ -34,7 +35,7 @@ export function LogoProvider({ children }: { children: React.ReactNode }) {
         const data = await response.json();
         // Handle both uploaded logos and default logo
         if (data.logo.startsWith('/uploads/')) {
-          setLogo(`http://localhost:5000${data.logo}`);
+          setLogo(assetUrl(data.logo));
         } else {
           setLogo(data.logo);
         }
@@ -76,7 +77,7 @@ export function LogoProvider({ children }: { children: React.ReactNode }) {
 
       if (response.ok) {
         const data = await response.json();
-        setLogo(`http://localhost:5000${data.logo}`);
+        setLogo(assetUrl(data.logo));
         return true;
       }
       return false;

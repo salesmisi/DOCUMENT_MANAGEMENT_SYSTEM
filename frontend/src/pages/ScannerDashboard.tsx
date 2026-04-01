@@ -20,6 +20,7 @@ import {
 import { useDocuments } from '../context/DocumentContext';
 import { formatDate } from '../utils/locale';
 import { useAuth } from '../context/AuthContext';
+import { apiUrl } from '../utils/api';
 
 interface Scanner {
   id: string;
@@ -94,7 +95,7 @@ export function ScannerDashboard() {
   } | null>(null);
   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
 
-  const API_BASE = 'http://localhost:5000/api';
+  const API_BASE = apiUrl('');
 
   const visibleFolders = React.useMemo(() => folders, [folders]);
 

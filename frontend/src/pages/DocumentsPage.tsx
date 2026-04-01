@@ -38,6 +38,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { CreateFolderModal } from '../components/CreateFolderModal';
 import { EditFolderModal } from '../components/EditFolderModal';
 import { UnifiedSearch } from '../components/UnifiedSearch';
+import { apiUrl } from '../utils/api';
 import { ShareDialog } from '../components/ShareDialog';
 
 // Quick Access folder card component
@@ -473,7 +474,7 @@ export function DocumentsPage() {
   const handleDownload = async (doc: Document) => {
     try {
       const token = localStorage.getItem('dms_token');
-      const res = await fetch(`http://localhost:5000/api/documents/${doc.id}/download`, {
+      const res = await fetch(apiUrl(`/documents/${doc.id}/download`), {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error('Download failed');

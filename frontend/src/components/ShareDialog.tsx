@@ -6,6 +6,7 @@ import { User } from '../context/AuthContext';
 import { Document } from '../context/DocumentContext';
 import { Mail, Copy, Lock, Users, Link2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { apiUrl } from '../utils/api';
 
 interface ShareDialogProps {
   isOpen: boolean;
@@ -47,7 +48,7 @@ export function ShareDialog({ isOpen, onClose, document, currentUser }: ShareDia
         setLoadingShares(true);
         try {
           const token = localStorage.getItem('dms_token');
-          const res = await fetch(`http://localhost:5000/api/documents/${document.id}/shares`, {
+          const res = await fetch(apiUrl(`/documents/${document.id}/shares`), {
             headers: {
               ...(token ? { Authorization: `Bearer ${token}` } : {})
             }
@@ -120,7 +121,7 @@ export function ShareDialog({ isOpen, onClose, document, currentUser }: ShareDia
       const token = localStorage.getItem('dms_token');
       // Exclude owner/self from share list
       const users = peopleWithAccess.filter(p => !p.self).map(p => ({ userId: p.id, role: p.role }));
-      await fetch(`http://localhost:5000/api/documents/${document.id}/share`, {
+      await fetch(apiUrl(`/documents/${document.id}/share`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

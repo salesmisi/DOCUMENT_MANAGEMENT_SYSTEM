@@ -8,6 +8,7 @@ import {
 'lucide-react';
 import { useDocuments } from '../context/DocumentContext';
 import { useAuth } from '../context/AuthContext';
+import { apiUrl } from '../utils/api';
 interface UploadModalProps {
   onClose: () => void;
   defaultFolderId?: string;
@@ -136,7 +137,7 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
 
   const token = localStorage.getItem("dms_token");
 
-  const res = await fetch("http://localhost:5000/api/documents", {
+  const res = await fetch(apiUrl('/documents'), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`

@@ -17,6 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { useDocuments } from '../context/DocumentContext';
 import { AutocompleteSearch } from '../components/AutocompleteSearch';
 import { useLanguage } from '../context/LanguageContext';
+import { apiUrl } from '../utils/api';
 
 // Password validation rules
 const PASSWORD_RULES = {
@@ -105,7 +106,7 @@ export function UserManagement() {
     try {
       setLoadingDepts(true);
       const token = localStorage.getItem('dms_token');
-      const res = await fetch('http://localhost:5000/api/departments', {
+      const res = await fetch(apiUrl('/departments'), {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -131,7 +132,7 @@ export function UserManagement() {
     }
     try {
       const token = localStorage.getItem('dms_token');
-      const res = await fetch('http://localhost:5000/api/departments', {
+      const res = await fetch(apiUrl('/departments'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -175,7 +176,7 @@ export function UserManagement() {
     if (!deleteDeptConfirm) return;
     try {
       const token = localStorage.getItem('dms_token');
-      const res = await fetch(`http://localhost:5000/api/departments/${deleteDeptConfirm.id}`, {
+      const res = await fetch(apiUrl(`/departments/${deleteDeptConfirm.id}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });

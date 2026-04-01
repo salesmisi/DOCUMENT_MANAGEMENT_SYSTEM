@@ -5,6 +5,7 @@ import React, {
   ReactNode,
   useEffect
 } from 'react';
+import { apiUrl } from '../utils/api';
 
 export interface Document {
   id: string;
@@ -175,7 +176,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
     try {
       const authToken = token || localStorage.getItem("dms_token");
 
-      const res = await fetch("http://localhost:5000/api/folders", {
+      const res = await fetch(apiUrl('/folders'), {
         headers: {
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
         }
@@ -251,7 +252,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
         if (storedDocs) setDocuments(JSON.parse(storedDocs));
         return;
       }
-      const res = await fetch("http://localhost:5000/api/documents", {
+      const res = await fetch(apiUrl('/documents'), {
         headers: { ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) }
       });
       if (!res.ok) {
@@ -331,7 +332,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
     try {
       const authToken = token || localStorage.getItem('dms_token');
       if (!authToken) return;
-      const res = await fetch('http://localhost:5000/api/activity-logs', {
+      const res = await fetch(apiUrl('/activity-logs'), {
         headers: { ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) }
       });
       if (!res.ok) return;
@@ -351,7 +352,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
     // Send to backend
     try {
       const authToken = token || localStorage.getItem('dms_token');
-      const res = await fetch('http://localhost:5000/api/activity-logs', {
+      const res = await fetch(apiUrl('/activity-logs'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -404,7 +405,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
     updateDocument(id, { status: 'approved', approvedBy });
     try {
       const authToken = token || localStorage.getItem('dms_token');
-      const res = await fetch(`http://localhost:5000/api/documents/${id}/approve`, {
+      const res = await fetch(apiUrl(`/documents/${id}/approve`), {
         method: 'PATCH',
         headers: { ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) }
       });
@@ -420,7 +421,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
     updateDocument(id, { status: 'rejected', rejectionReason: reason, approvedBy: rejectedBy });
     try {
       const authToken = token || localStorage.getItem('dms_token');
-      await fetch(`http://localhost:5000/api/documents/${id}/reject`, {
+      await fetch(apiUrl(`/documents/${id}/reject`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
         body: JSON.stringify({ reason })
@@ -432,7 +433,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
     updateDocument(id, { status: 'trashed', trashedAt: new Date().toISOString() });
     try {
       const authToken = token || localStorage.getItem('dms_token');
-      await fetch(`http://localhost:5000/api/documents/${id}/trash`, {
+      await fetch(apiUrl(`/documents/${id}/trash`), {
         method: 'PATCH',
         headers: { ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) }
       });
@@ -443,7 +444,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
     updateDocument(id, { status: 'approved', trashedAt: undefined, archivedAt: undefined });
     try {
       const authToken = token || localStorage.getItem('dms_token');
-      const res = await fetch(`http://localhost:5000/api/documents/${id}/restore`, {
+      const res = await fetch(apiUrl(`/documents/${id}/restore`), {
         method: 'PATCH',
         headers: { ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) }
       });
@@ -463,7 +464,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
     updateDocument(id, { status: 'archived', archivedAt: new Date().toISOString(), retentionDays: 30 });
     try {
       const authToken = token || localStorage.getItem('dms_token');
-      await fetch(`http://localhost:5000/api/documents/${id}/archive`, {
+      await fetch(apiUrl(`/documents/${id}/archive`), {
         method: 'PATCH',
         headers: { ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) }
       });
@@ -474,7 +475,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
     deleteDocument(id);
     try {
       const authToken = token || localStorage.getItem('dms_token');
-      await fetch(`http://localhost:5000/api/documents/${id}`, {
+      await fetch(apiUrl(`/documents/${id}`), {
         method: 'DELETE',
         headers: { ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) }
       });
@@ -501,7 +502,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
     try {
       const authToken = token || localStorage.getItem("dms_token");
 
-      const res = await fetch("http://localhost:5000/api/folders", {
+      const res = await fetch(apiUrl('/folders'), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -530,7 +531,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
   const updateFolder = async (id: string, updates: Partial<Folder>) => {
     try {
       const token = localStorage.getItem('dms_token');
-      const res = await fetch(`http://localhost:5000/api/folders/${id}`, {
+      const res = await fetch(apiUrl(`/folders/${id}`), {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -560,7 +561,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
   const deleteFolder = async (id: string) => {
     try {
       const token = localStorage.getItem('dms_token');
-      const res = await fetch(`http://localhost:5000/api/folders/${id}`, {
+      const res = await fetch(apiUrl(`/folders/${id}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
       });

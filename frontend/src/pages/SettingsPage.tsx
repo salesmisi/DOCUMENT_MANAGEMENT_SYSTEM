@@ -7,8 +7,9 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
 import { LogoSettings } from '../components/LogoSettings';
+import { apiUrl } from '../utils/api';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = apiUrl('');
 
 export function SettingsPage() {
   const { changePassword, logout, token, user } = useAuth();

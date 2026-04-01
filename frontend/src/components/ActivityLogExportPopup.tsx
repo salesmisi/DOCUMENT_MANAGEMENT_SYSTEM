@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AlertTriangle, Download, FileSpreadsheet, FileText, X } from 'lucide-react';
+import { apiUrl } from '../utils/api';
 
 interface Props {
   count: number;
@@ -15,7 +16,7 @@ export function ActivityLogExportPopup({ count, onDismiss, onExported }: Props) 
     try {
       const token = localStorage.getItem('dms_token');
       const endpoint = format === 'pdf' ? 'download-pdf' : 'download';
-      const res = await fetch(`http://localhost:5000/api/activity-logs/${endpoint}`, {
+      const res = await fetch(apiUrl(`/activity-logs/${endpoint}`), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error('Download failed');
@@ -29,7 +30,7 @@ export function ActivityLogExportPopup({ count, onDismiss, onExported }: Props) 
       URL.revokeObjectURL(url);
 
       // After successful download, archive the logs
-      await fetch('http://localhost:5000/api/activity-logs/download-and-archive', {
+      await fetch(apiUrl('/activity-logs/download-and-archive'), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });

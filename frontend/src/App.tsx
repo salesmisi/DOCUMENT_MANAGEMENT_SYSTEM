@@ -23,6 +23,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ActivityLogExportPopup } from './components/ActivityLogExportPopup';
+import { apiUrl } from './utils/api';
 export type PageName =
   'dashboard' |
   'documents' |
@@ -68,7 +69,7 @@ function AppContent() {
     try {
       const token = localStorage.getItem('dms_token');
       if (!token) return;
-      const res = await fetch('http://localhost:5000/api/activity-logs/count', {
+      const res = await fetch(apiUrl('/activity-logs/count'), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;
