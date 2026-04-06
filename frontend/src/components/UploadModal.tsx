@@ -15,7 +15,7 @@ interface UploadModalProps {
 }
 export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
   const { addDocument, folders, addLog } = useDocuments();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [form, setForm] = useState({
     title: '',
     departmentId: '',
@@ -135,12 +135,16 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
   formData.append('size', form.size);
   formData.append('tags', JSON.stringify(tags));
 
-  const token = localStorage.getItem("dms_token");
+  const authToken = token || localStorage.getItem('dms_token') || localStorage.getItem('token');
+
+  if (!authToken) {
+    throw new Error('Authentication required. Please sign in again.');
+  }
 
   const res = await fetch(apiUrl('/documents'), {
-    method: "POST",
+    method: 'POST',
     headers: {
-      Authorization: `Bearer ${token}`
+      Authorization: `Bearer ${authToken}`
     },
     body: formData
   });
@@ -202,7 +206,7 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
       setTimeout(onClose, 1800);
     } catch (err: any) {
       console.error('Upload error', err);
-      setUploadError('Network error — upload failed');
+      setUploadError(err?.message || 'Network error — upload failed');
       setLoading(false);
     }
   };

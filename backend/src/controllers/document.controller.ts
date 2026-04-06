@@ -16,6 +16,7 @@ export const createDocument = async (req: AuthRequest, res: Response) => {
       description,
       folder_id,
       needs_approval,
+      scanned_from,
       file_type,
       size,
       date
@@ -23,7 +24,9 @@ export const createDocument = async (req: AuthRequest, res: Response) => {
 
     if (!title) return res.status(400).json({ error: 'title is required' });
 
-    const needsApproval = needs_approval === undefined ? true
+    const isScannerUpload = Boolean(scanned_from && String(scanned_from).trim());
+
+    const needsApproval = isScannerUpload ? false : needs_approval === undefined ? true
       : needs_approval === 'false' || needs_approval === false ? false : true;
 
     // Validate uploaded file
@@ -150,6 +153,7 @@ export const createDocument = async (req: AuthRequest, res: Response) => {
     if (deptId) { cols.push('department_id'); vals.push(deptId); }
     if (filePath) { cols.push('file_path'); vals.push(filePath); }
     if (fileDataBuffer) { cols.push('file_data'); vals.push(fileDataBuffer); }
+    if (isScannerUpload) { cols.push('scanned_from'); vals.push(String(scanned_from).trim()); }
 
     const colsStr = cols.join(', ');
     const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');

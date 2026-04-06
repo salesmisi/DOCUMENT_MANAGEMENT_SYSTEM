@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "ts-node src/server.ts",
     "build": "tsc",
+    "local-agent": "node scripts/local-scanner-agent.js",
     "prestart": "npm run build",
     "start": "node dist/server.js"
   },
@@ -16,16 +17,19 @@
   "dependencies": {
     "@types/node-cron": "^3.0.11",
     "@types/pdfkit": "^0.17.5",
+    "axios": "^1.9.0",
     "bcrypt": "^6.0.0",
     "chokidar": "^3.6.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
+    "form-data": "^4.0.2",
     "jsonwebtoken": "^9.0.3",
     "mammoth": "^1.11.0",
     "multer": "^2.1.0",
     "node-cron": "^4.2.1",
+    "node-fetch": "^2.7.0",
     "opencv-wasm": "^4.3.0-10",
     "pdf-lib": "^1.17.1",
     "pdfkit": "^0.18.0",

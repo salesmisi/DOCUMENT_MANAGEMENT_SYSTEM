@@ -373,6 +373,42 @@ app.use('/api/scanner', scannerRoutes);
 app.use('/api/cleanup', cleanupRoutes);
 app.use('/api/settings', settingsRoutes);
 
+app.get('/api/scan-health', async (_req, res) => {
+  const agentUrl = process.env.AGENT_URL || 'http://localhost:3001';
+
+  try {
+    const fetch = require('node-fetch') as any;
+    const response = await fetch(`${agentUrl}/health`);
+
+    if (!response.ok) {
+      return res.json({
+        agent: {
+          status: 'offline',
+          ok: false,
+          naps2Installed: false,
+          backendUrl: agentUrl,
+        },
+        error: 'Scanner agent returned a non-success response',
+      });
+    }
+
+    const agent = await response.json();
+
+    return res.json({ agent });
+  } catch (error: any) {
+    return res.json({
+      agent: {
+        status: 'offline',
+        ok: false,
+        naps2Installed: false,
+        backendUrl: agentUrl,
+      },
+      error: 'Cannot reach scanner agent',
+      details: error?.message || 'Unknown error',
+    });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 
 connectDB().then(async () => {
