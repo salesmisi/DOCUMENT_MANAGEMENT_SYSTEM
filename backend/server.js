@@ -17,7 +17,7 @@ if (!DATABASE_URL) {
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: { rejectUnauthorized: false },
 });
 
 app.use(cors({
@@ -79,3 +79,4 @@ async function start() {
 start();
 
 module.exports = app;
+module.exports.pool = pool;

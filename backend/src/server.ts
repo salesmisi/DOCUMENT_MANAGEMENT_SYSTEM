@@ -411,7 +411,12 @@ app.get('/api/scan-health', async (_req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-connectDB().then(async () => {
+connectDB().then(async (connected) => {
+  if (!connected) {
+    console.error('Server startup aborted: database connection failed.');
+    process.exit(1);
+  }
+
   await runMigrations();
   await ensureDefaultAdmin();
   // Start the cleanup service
