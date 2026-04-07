@@ -200,6 +200,7 @@ async function runMigrations() {
     // Add missing columns to documents table
     await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_data BYTEA`, 'documents.file_data');
     await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS department VARCHAR(100)`, 'documents.department');
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS department_id UUID REFERENCES departments(id) ON DELETE SET NULL`, 'documents.department_id');
     await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS approved_by VARCHAR(150)`, 'documents.approved_by');
     await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS rejection_reason TEXT`, 'documents.rejection_reason');
     await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`, 'documents.tags');

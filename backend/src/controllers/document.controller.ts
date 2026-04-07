@@ -32,6 +32,20 @@ function getReferencePrefix(userRole: string | null | undefined, departmentName:
   return (departmentName || 'GEN').slice(0, 3).toUpperCase();
 }
 
+async function documentColumnExists(columnName: string): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT 1
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'documents'
+        AND column_name = $1
+      LIMIT 1`,
+    [columnName]
+  );
+
+  return result.rows.length > 0;
+}
+
 // Create document with backend-generated reference
 export const createDocument = async (req: AuthRequest, res: Response) => {
   try {
@@ -175,7 +189,9 @@ export const createDocument = async (req: AuthRequest, res: Response) => {
     // Add optional columns if available in DB
     // Always push department text (defaults to 'General' so never null)
     cols.push('department'); vals.push(deptName);
-    if (deptId) { cols.push('department_id'); vals.push(deptId); }
+    if (deptId && await documentColumnExists('department_id')) {
+      cols.push('department_id'); vals.push(deptId);
+    }
     if (filePath) { cols.push('file_path'); vals.push(filePath); }
     if (fileDataBuffer) { cols.push('file_data'); vals.push(fileDataBuffer); }
     if (isScannerUpload) { cols.push('scanned_from'); vals.push(String(scanned_from).trim()); }
