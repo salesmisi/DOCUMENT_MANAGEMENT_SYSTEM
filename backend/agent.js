@@ -111,6 +111,20 @@ function resolvePageSize(paperSize) {
   return 'a4';
 }
 
+function resolveScanSource(scanSource) {
+  const normalized = String(scanSource || 'auto').trim().toLowerCase();
+
+  if (normalized === 'feeder' || normalized === 'adf' || normalized === 'document feeder') {
+    return 'feeder';
+  }
+
+  if (normalized === 'glass' || normalized === 'flatbed') {
+    return 'glass';
+  }
+
+  return null;
+}
+
 function buildScanArgs({ outputPath, scanner, dpi, color, paperSize, format }) {
   const args = ['-o', outputPath, '--force'];
 
@@ -126,6 +140,11 @@ function buildScanArgs({ outputPath, scanner, dpi, color, paperSize, format }) {
 
   if (dpi) {
     args.push('--dpi', String(dpi));
+  }
+
+  const resolvedSource = resolveScanSource(arguments[0].scanSource);
+  if (resolvedSource) {
+    args.push('--source', resolvedSource);
   }
 
   args.push('--bitdepth', resolveBitDepth(color));
@@ -232,17 +251,18 @@ app.post('/scan', async (req, res) => {
   log('/scan called', req.body || {});
 
   try {
-    const { scanner, dpi, color, paperSize, format } = req.body || {};
+    const { scanner, scannerName, dpi, color, paperSize, format, scanSource } = req.body || {};
     const fileExtension = (String(format || 'pdf').trim().toLowerCase() === 'png') ? 'png' : 'pdf';
     const outputPath = path.join(SCANS_DIR, `scan.${fileExtension}`);
 
     await runScan({
       outputPath,
-      scanner,
+      scanner: scanner || scannerName,
       dpi,
       color,
       paperSize,
       format: fileExtension,
+      scanSource,
     });
 
     res.json({
@@ -269,18 +289,19 @@ app.post('/scan-local', async (req, res) => {
   log('/scan-local called', req.body || {});
 
   try {
-    const { scanner, dpi, color, paperSize, format } = req.body || {};
+    const { scanner, scannerName, dpi, color, paperSize, format, scanSource } = req.body || {};
     const fileExtension = (String(format || 'pdf').trim().toLowerCase() === 'png') ? 'png' : 'pdf';
     const sessionId = randomUUID();
     const outputPath = path.join(SCANS_DIR, `${sessionId}.${fileExtension}`);
 
     await runScan({
       outputPath,
-      scanner,
+      scanner: scanner || scannerName,
       dpi,
       color,
       paperSize,
       format: fileExtension,
+      scanSource,
     });
 
     previewSessions.set(sessionId, {
