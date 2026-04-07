@@ -1,0 +1,212 @@
+const express = require('express');
+const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+
+const execFileAsync = promisify(execFile);
+
+const app = express();
+const PORT = Number(process.env.PORT || 3001);
+const SCANS_DIR = path.resolve(process.env.SCANS_DIR || path.join(__dirname, 'scans'));
+const ALLOWED_ORIGINS = new Set([
+  'http://localhost:5173',
+  'https://documentmanagementsystem-production-9d6e.up.railway.app',
+]);
+
+fs.mkdirSync(SCANS_DIR, { recursive: true });
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || ALLOWED_ORIGINS.has(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+}));
+app.use(express.json());
+
+function log(message, meta) {
+  if (meta) {
+    console.log(`[agent] ${message}`, meta);
+    return;
+  }
+
+  console.log(`[agent] ${message}`);
+}
+
+function getCandidateNaps2Paths() {
+  const envPath = process.env.NAPS2_PATH;
+  const candidates = [
+    envPath,
+    'C:\\Program Files\\NAPS2\\NAPS2.Console.exe',
+    'C:\\Program Files (x86)\\NAPS2\\NAPS2.Console.exe',
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'NAPS2', 'NAPS2.Console.exe'),
+  ].filter(Boolean);
+
+  return [...new Set(candidates)];
+}
+
+async function findNaps2Executable() {
+  for (const candidate of getCandidateNaps2Paths()) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  try {
+    const { stdout } = await execFileAsync('where', ['NAPS2.Console.exe'], { windowsHide: true });
+    const firstPath = stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
+
+    return firstPath || null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveBitDepth(colorMode) {
+  const normalized = String(colorMode || 'color').trim().toLowerCase();
+
+  if (normalized === 'bw' || normalized === 'black-and-white' || normalized === 'blackwhite') {
+    return '1';
+  }
+
+  if (normalized === 'gray' || normalized === 'grey' || normalized === 'grayscale' || normalized === 'greyscale') {
+    return '8';
+  }
+
+  return '24';
+}
+
+function resolvePageSize(paperSize) {
+  const normalized = String(paperSize || 'a4').trim().toLowerCase();
+
+  if (normalized === 'legal' || normalized === 'letter' || normalized === 'a4') {
+    return normalized;
+  }
+
+  return 'a4';
+}
+
+function buildScanArgs({ outputPath, scanner, dpi, color, paperSize, format }) {
+  const args = ['-o', outputPath, '--force'];
+
+  if ((format || 'pdf').toLowerCase() === 'pdf') {
+    args.push('--pdfcompat', 'PDF_A_2B');
+  }
+
+  if (scanner) {
+    args.push('--driver', 'wia', '--device', String(scanner));
+  } else {
+    args.push('--interactivescan');
+  }
+
+  if (dpi) {
+    args.push('--dpi', String(dpi));
+  }
+
+  args.push('--bitdepth', resolveBitDepth(color));
+  args.push('--pagesize', resolvePageSize(paperSize));
+
+  return args;
+}
+
+async function runScan(options) {
+  const naps2Path = await findNaps2Executable();
+
+  if (!naps2Path) {
+    const error = new Error('NAPS2 is not installed or could not be found.');
+    error.code = 'NAPS2_NOT_FOUND';
+    throw error;
+  }
+
+  const args = buildScanArgs(options);
+  log('Running NAPS2 scan', { naps2Path, args });
+
+  await execFileAsync(naps2Path, args, {
+    timeout: 300000,
+    windowsHide: true,
+  });
+
+  if (!fs.existsSync(options.outputPath)) {
+    throw new Error('NAPS2 finished but no output file was created.');
+  }
+
+  return naps2Path;
+}
+
+app.get('/status', async (_req, res) => {
+  log('/status called');
+
+  try {
+    const naps2Path = await findNaps2Executable();
+
+    res.json({
+      running: true,
+      naps2: Boolean(naps2Path),
+    });
+  } catch (error) {
+    res.status(500).json({
+      running: true,
+      naps2: false,
+      error: error.message || 'Failed to check NAPS2 status.',
+    });
+  }
+});
+
+app.post('/scan', async (req, res) => {
+  log('/scan called', req.body || {});
+
+  try {
+    const { scanner, dpi, color, paperSize, format } = req.body || {};
+    const fileExtension = (String(format || 'pdf').trim().toLowerCase() === 'png') ? 'png' : 'pdf';
+    const outputPath = path.join(SCANS_DIR, `scan.${fileExtension}`);
+
+    await runScan({
+      outputPath,
+      scanner,
+      dpi,
+      color,
+      paperSize,
+      format: fileExtension,
+    });
+
+    res.json({
+      success: true,
+      filePath: outputPath,
+    });
+  } catch (error) {
+    if (error.code === 'NAPS2_NOT_FOUND') {
+      res.status(503).json({
+        success: false,
+        error: 'NAPS2 is not installed.',
+      });
+      return;
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Scan failed.',
+    });
+  }
+});
+
+app.use((error, _req, res, _next) => {
+  console.error('[agent] Unhandled error:', error);
+  res.status(500).json({
+    success: false,
+    error: error.message || 'Unexpected agent error.',
+  });
+});
+
+app.listen(PORT, () => {
+  log(`Local scanner agent listening on http://localhost:${PORT}`);
+  log(`Scans directory: ${SCANS_DIR}`);
+});

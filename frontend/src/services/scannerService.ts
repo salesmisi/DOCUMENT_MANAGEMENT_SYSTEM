@@ -1,7 +1,12 @@
 import { apiUrl } from '../utils/api';
 
-const SCANNER_AGENT_BASE_URL = 'http://localhost:3001';
-const SCANNER_AGENT_HEALTH_URL = apiUrl('/scan-health');
+const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
+
+const configuredAgentUrl = typeof import.meta !== 'undefined' && import.meta.env.VITE_AGENT_URL
+  ? String(import.meta.env.VITE_AGENT_URL)
+  : 'http://localhost:3001';
+
+const SCANNER_AGENT_BASE_URL = trimTrailingSlash(configuredAgentUrl || 'http://localhost:3001');
 const TOKEN_STORAGE_KEYS = ['token', 'dms_token'];
 
 export interface ScannerAgentDevice {
@@ -64,6 +69,12 @@ export interface ScannerAgentHealth {
   backendUrl?: string;
 }
 
+export interface AgentStatusResponse {
+  running: boolean;
+  naps2: boolean;
+  [key: string]: unknown;
+}
+
 // Support both the generic token key and the app's existing dms_token key.
 const getToken = () => TOKEN_STORAGE_KEYS
   .map((key) => window.localStorage.getItem(key))
@@ -95,10 +106,6 @@ const buildRequiredAuthHeaders = (includeJson = false) => {
     ...(includeJson ? { 'Content-Type': 'application/json' } : {}),
     Authorization: `Bearer ${token}`,
   };
-};
-
-const hasConfiguredBackendUrl = (backendUrl?: string) => {
-  return Boolean(backendUrl && !backendUrl.includes('YOUR-RAILWAY-URL'));
 };
 
 const normalizeColorMode = (color?: string) => {
@@ -138,16 +145,17 @@ const normalizeScannerDevice = (device: ScannerAgentDevice) => {
 };
 
 export async function getAgentHealth() {
-  const response = await fetch(SCANNER_AGENT_HEALTH_URL, {
-    headers: buildHeaders(),
-  });
+  const agent = await detectAgent();
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+  if (!agent) {
+    throw new Error('Local scanner agent is not reachable.');
   }
 
-  const data = await response.json() as { agent?: ScannerAgentHealth } | ScannerAgentHealth;
-  return ('agent' in data ? data.agent : data) as ScannerAgentHealth;
+  return {
+    status: agent.running ? 'ok' : 'offline',
+    ok: agent.running,
+    naps2Installed: agent.naps2,
+  } satisfies ScannerAgentHealth;
 };
 
 const ensureAgentConfigured = async () => {
@@ -155,10 +163,6 @@ const ensureAgentConfigured = async () => {
 
   if ((health.status !== 'ok' && health.ok !== true) || health.naps2Installed === false) {
     throw new Error('Scanner agent is unavailable. Start the local scanner agent and try again.');
-  }
-
-  if (!hasConfiguredBackendUrl(health.backendUrl)) {
-    throw new Error('Scanner agent backend URL is not configured. Update the local agent Railway backend URL and try again.');
   }
 
   return health;
@@ -206,13 +210,40 @@ const requestJson = async <T>(path: string, init?: RequestInit) => {
   return response.json() as Promise<T>;
 };
 
-export async function checkAgent() {
+export async function detectAgent(): Promise<AgentStatusResponse | null> {
   try {
-    const health = await getAgentHealth();
-    return (health.status === 'ok' || health.ok === true) && health.naps2Installed !== false;
+    const response = await fetch(`${SCANNER_AGENT_BASE_URL}/status`, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+
+    if (!contentType.includes('application/json')) {
+      return null;
+    }
+
+    const payload = await response.json() as Partial<AgentStatusResponse>;
+
+    return {
+      ...payload,
+      running: Boolean(payload.running),
+      naps2: Boolean(payload.naps2),
+    };
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function checkAgent() {
+  const agent = await detectAgent();
+  return Boolean(agent?.running && agent?.naps2);
 }
 
 export async function getScanners() {
@@ -389,6 +420,7 @@ export async function uploadScannedFile(file: Blob, title: string, folder_id: st
 }
 
 export const scannerService = {
+  detectAgent,
   checkAgent,
   getAgentHealth,
   getScanners,

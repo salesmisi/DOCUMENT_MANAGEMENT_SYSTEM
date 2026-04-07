@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Clock3, Download, Eye, Info, Loader2, Monitor, RotateCw, ScanLine, Settings2, Upload, WifiOff, XCircle } from 'lucide-react';
 import { useScanner } from '../hooks/useScanner';
+import { detectAgent } from '../services/scannerService';
 import { apiUrl } from '../utils/api';
 
 const DOCUMENT_TYPE_CODES = [
@@ -62,7 +63,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
   const [format, setFormat] = useState('pdf');
   const [multiPageEnabled, setMultiPageEnabled] = useState(false);
   const [scannerAvailable, setScannerAvailable] = useState(false);
-  const [scannerStatusMessage, setScannerStatusMessage] = useState('Scanner agent not found');
+  const [scannerStatusMessage, setScannerStatusMessage] = useState('Agent Not Detected');
   const [showDocumentTypeCodes, setShowDocumentTypeCodes] = useState(false);
 
   const formatRecentScanDate = (value: string) => {
@@ -123,39 +124,21 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
   const targetFolderId = subfolderId;
   const hasRequiredScanFields = Boolean(title.trim() && departmentFolderId && subfolderId);
 
-  const scannerHealthUrl = (() => {
-    return apiUrl('/scan-health');
-  })();
+  const refreshAgentStatus = useCallback(async () => {
+    const agent = await detectAgent();
+    const connected = Boolean(agent?.running);
+    const readyForScanning = Boolean(agent?.running && agent?.naps2);
 
-  const checkScannerAgent = async () => {
-    try {
-      const response = await fetch(scannerHealthUrl);
-      const data = await response.json();
-      const agent = data?.agent || data;
-      const backendConfigured = Boolean(agent?.backendUrl && !String(agent.backendUrl).includes('YOUR-RAILWAY-URL'));
-      const healthy = (agent?.status === 'ok' || agent?.ok === true) && agent?.naps2Installed !== false && backendConfigured;
+    setScannerAvailable(readyForScanning);
+    setScannerStatusMessage(connected ? 'Agent Connected' : 'Agent Not Detected');
 
-      if (healthy) {
-        setScannerAvailable(true);
-        setScannerStatusMessage('Scanner ready');
-      } else {
-        setScannerAvailable(false);
-        setScannerStatusMessage(
-          backendConfigured
-            ? 'Scanner agent not found'
-            : 'Scanner agent backend URL is not configured'
-        );
-      }
-    } catch {
-      setScannerAvailable(false);
-      setScannerStatusMessage('Scanner agent not found');
-    }
-  };
+    return connected;
+  }, []);
 
   useEffect(() => {
-    void checkScannerAgent();
+    void refreshAgentStatus();
     void initializeScanner();
-  }, []);
+  }, [initializeScanner, refreshAgentStatus]);
 
   useEffect(() => {
     if (!departmentFolderId && departmentFolders.length > 0) {
@@ -279,6 +262,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
 
   const handleDetectScanners = async () => {
     clearMessages();
+    await refreshAgentStatus();
     await initializeScanner();
   };
 
@@ -357,7 +341,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
           }`}
         >
           {scannerAvailable ? <CheckCircle2 size={16} /> : <WifiOff size={16} />}
-          <span>{scannerAvailable ? 'Scanner ready' : scannerStatusMessage}</span>
+          <span>{scannerStatusMessage}</span>
         </div>
       </div>
 
@@ -395,7 +379,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
             <button
               type="button"
               onClick={() => void handleDetectScanners()}
-              disabled={loading || !agentOnline}
+              disabled={loading}
               className="inline-flex items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-[#2f6b3f] transition hover:bg-[#f3f7ef] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? <Loader2 className="animate-spin" size={16} /> : <RotateCw size={16} />}
