@@ -1,12 +1,7 @@
 import { apiUrl } from '../utils/api';
 
 const SCANNER_AGENT_BASE_URL = 'http://localhost:3001';
-const SCANNER_AGENT_HEALTH_URL = (() => {
-  const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
-  const apiBaseUrl = String(viteEnv?.VITE_API_URL || '').replace(/\/+$/, '');
-
-  return apiBaseUrl ? `${apiBaseUrl}/scan-health` : '/api/scan-health';
-})();
+const SCANNER_AGENT_HEALTH_URL = apiUrl('/scan-health');
 const TOKEN_STORAGE_KEYS = ['token', 'dms_token'];
 
 export interface ScannerAgentDevice {

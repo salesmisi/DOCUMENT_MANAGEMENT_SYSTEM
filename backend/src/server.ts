@@ -9,9 +9,25 @@ import fs from 'fs';
 dotenv.config();
 
 const app = express();
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://documentmanagementsystem-production-9d6e.up.railway.app';
+const allowedOrigins = new Set([
+  'http://localhost:5173',
+  'https://documentmanagementsystem-production-9d6e.up.railway.app',
+  FRONTEND_URL,
+]);
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 
 // Ensure uploads directory exists
@@ -23,7 +39,7 @@ if (!fs.existsSync(uploadsDir)) {
 // Serve uploaded files statically
 app.use('/uploads', express.static(uploadsDir));
 
-app.get('/', (req, res) => res.send('API running'));
+app.get('/', (_req, res) => res.send('API is running'));
 
 // Auto-migration: ensure schema is up to date
 async function runMigrations() {
@@ -360,6 +376,11 @@ import cleanupRoutes from './routes/cleanup.routes';
 import settingsRoutes from './routes/settings.routes';
 import scanWatcher from './services/scanWatcher.service';
 import cleanupService from './services/cleanup.service';
+
+// Compatibility aliases for deployments that call root paths instead of /api/*.
+app.use('/auth', authRoutes);
+app.use('/folders', folderRoutes);
+app.use('/settings', settingsRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);

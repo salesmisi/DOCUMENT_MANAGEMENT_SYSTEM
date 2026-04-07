@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { apiUrl } from '../utils/api';
 
 type ApiResponse = {
   ok?: boolean;
@@ -9,8 +10,7 @@ type ApiResponse = {
 };
 
 export function RailwayApiTest() {
-  const apiBaseUrl = String(import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
-  const testUrl = apiBaseUrl ? `${apiBaseUrl}/test` : '';
+  const testUrl = apiUrl('/test');
 
   const [data, setData] = useState<ApiResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +71,7 @@ export function RailwayApiTest() {
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Railway API Test</h2>
         <p className="mt-1 text-sm text-gray-600">
-          Checks the backend using <span className="font-mono">{testUrl || 'VITE_API_URL/test'}</span>
+          Checks the backend using <span className="font-mono">{testUrl}</span>
         </p>
       </div>
 

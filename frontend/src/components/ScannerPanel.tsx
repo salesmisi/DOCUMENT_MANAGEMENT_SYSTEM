@@ -124,10 +124,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
   const hasRequiredScanFields = Boolean(title.trim() && departmentFolderId && subfolderId);
 
   const scannerHealthUrl = (() => {
-    const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
-    const apiBaseUrl = String(viteEnv?.VITE_API_URL || '').replace(/\/+$/, '');
-
-    return apiBaseUrl ? `${apiBaseUrl}/scan-health` : '/api/scan-health';
+    return apiUrl('/scan-health');
   })();
 
   const checkScannerAgent = async () => {
