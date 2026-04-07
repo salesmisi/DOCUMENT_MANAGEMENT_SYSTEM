@@ -6,6 +6,32 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { restoreDocumentWithHierarchy } from '../services/restore.service';
 
+async function resolveFolderDepartment(currentFolderId: string): Promise<string | null> {
+  const folderRes = await pool.query(
+    'SELECT id, name, parent_id, department, is_department FROM folders WHERE id = $1',
+    [currentFolderId]
+  );
+
+  if (folderRes.rows.length === 0) {
+    return null;
+  }
+
+  const folder = folderRes.rows[0];
+  if (folder.is_department || !folder.parent_id) {
+    return folder.department || folder.name || null;
+  }
+
+  return resolveFolderDepartment(folder.parent_id);
+}
+
+function getReferencePrefix(userRole: string | null | undefined, departmentName: string): string {
+  if (String(userRole || '').toLowerCase() === 'admin') {
+    return 'ADM';
+  }
+
+  return (departmentName || 'GEN').slice(0, 3).toUpperCase();
+}
+
 // Create document with backend-generated reference
 export const createDocument = async (req: AuthRequest, res: Response) => {
   try {
@@ -25,9 +51,6 @@ export const createDocument = async (req: AuthRequest, res: Response) => {
     if (!title) return res.status(400).json({ error: 'title is required' });
 
     const isScannerUpload = Boolean(scanned_from && String(scanned_from).trim());
-
-    const needsApproval = isScannerUpload ? false : needs_approval === undefined ? true
-      : needs_approval === 'false' || needs_approval === false ? false : true;
 
     // Validate uploaded file
     const uploadedFile = (req as any).file;
@@ -53,36 +76,38 @@ export const createDocument = async (req: AuthRequest, res: Response) => {
     if (folderRes.rows.length === 0) {
       return res.status(400).json({ error: 'Folder not found' });
     }
-    const folderDeptName: string = folderRes.rows[0].department || '';
+    const folderDeptName: string = await resolveFolderDepartment(folder_id) || folderRes.rows[0].department || '';
 
     // Validate authenticated user
     const uploadedById = req.userId || null;
     if (!uploadedById) return res.status(401).json({ error: 'Authentication required' });
-    const userRes = await pool.query('SELECT name FROM users WHERE id = $1', [uploadedById]);
+    const userRes = await pool.query('SELECT name, role FROM users WHERE id = $1', [uploadedById]);
     const uploadedByName: string = userRes.rows[0]?.name || 'Unknown';
+    const uploadedByRole: string = userRes.rows[0]?.role || req.userRole || 'staff';
+    const needsApproval = isScannerUpload ? false : uploadedByRole === 'staff';
 
     // Resolve department
     let deptId: string | null = null;
     let deptName: string = 'General';
     let deptCode: string = 'GEN';
 
-    // Try by explicit department_id
-    if (department_id && isUuid(department_id)) {
-      const dr = await pool.query('SELECT id, name FROM departments WHERE id = $1', [department_id]);
-      if (dr.rows[0]) { deptId = dr.rows[0].id; deptName = dr.rows[0].name; }
-    }
-    // Try by explicit department name
-    if (!deptId && department) {
-      const dr = await pool.query('SELECT id, name FROM departments WHERE LOWER(name) = LOWER($1) LIMIT 1', [department]);
-      if (dr.rows[0]) { deptId = dr.rows[0].id; deptName = dr.rows[0].name; }
-    }
-    // Try by folder department name
-    if (!deptId && folderDeptName) {
+    // Folder hierarchy wins because folder access controls document visibility.
+    if (folderDeptName) {
       const dr = await pool.query('SELECT id, name FROM departments WHERE LOWER(name) = LOWER($1) LIMIT 1', [folderDeptName]);
       if (dr.rows[0]) { deptId = dr.rows[0].id; deptName = dr.rows[0].name; }
       else { deptName = folderDeptName; }
     }
-    deptCode = (deptName || 'GEN').slice(0, 3).toUpperCase();
+    // Fall back to explicit department_id only when the folder has no department mapping.
+    if (!deptId && department_id && isUuid(department_id)) {
+      const dr = await pool.query('SELECT id, name FROM departments WHERE id = $1', [department_id]);
+      if (dr.rows[0]) { deptId = dr.rows[0].id; deptName = dr.rows[0].name; }
+    }
+    // Last fallback: explicit department name.
+    if (!deptId && department) {
+      const dr = await pool.query('SELECT id, name FROM departments WHERE LOWER(name) = LOWER($1) LIMIT 1', [department]);
+      if (dr.rows[0]) { deptId = dr.rows[0].id; deptName = dr.rows[0].name; }
+    }
+    deptCode = getReferencePrefix(uploadedByRole, deptName);
 
     const year = new Date().getFullYear();
     const docDate = date || new Date().toISOString().split('T')[0];
@@ -198,6 +223,19 @@ export const listDocuments = async (req: AuthRequest, res: Response) => {
        FROM documents d
        WHERE d.uploaded_by_id = $1
           OR d.department = (SELECT department FROM users WHERE id = $1)
+          OR EXISTS (
+            SELECT 1
+            FROM folders f
+            JOIN users u ON u.id = $1
+            WHERE f.id = d.folder_id
+              AND (
+                u.role = 'manager' AND f.visibility <> 'admin-only' AND LOWER(COALESCE(f.department, '')) = LOWER(COALESCE(u.department, ''))
+                OR u.role = 'staff' AND (
+                  (f.visibility = 'department' AND LOWER(COALESCE(f.department, '')) = LOWER(COALESCE(u.department, '')))
+                  OR (f.visibility = 'private' AND f.created_by_id = u.id)
+                )
+              )
+          )
           OR EXISTS (SELECT 1 FROM document_shared_users s WHERE s.document_id = d.id AND s.user_id = $1)
        ORDER BY d.created_at DESC`,
       [userId]

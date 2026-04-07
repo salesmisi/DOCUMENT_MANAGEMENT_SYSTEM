@@ -13,6 +13,7 @@ interface PendingScan {
   folderId: string;
   userId: string;
   userName: string;
+  userRole?: string;
   department: string;
   departmentId?: string;
   batchId?: string;
@@ -36,6 +37,7 @@ interface MultiPageBatch {
   folderId: string;
   userId: string;
   userName: string;
+  userRole?: string;
   department: string;
   departmentId?: string;
   pages: BatchPage[];
@@ -379,9 +381,17 @@ async function createDocumentOptimized(params: {
 const referenceCache = new Map<string, { lastNumber: number; lastUpdated: number }>();
 const REFERENCE_CACHE_DURATION = 30000; // 30 seconds
 
-async function generateUniqueReferenceOptimized(department: string, departmentId?: string): Promise<string> {
+function getReferencePrefix(userRole: string | null | undefined, department: string): string {
+  if (String(userRole || '').toLowerCase() === 'admin') {
+    return 'ADM';
+  }
+
+  return (department || 'GEN').slice(0, 3).toUpperCase();
+}
+
+async function generateUniqueReferenceOptimized(department: string, departmentId?: string, userRole?: string): Promise<string> {
   const year = new Date().getFullYear();
-  const deptCode = (department || 'GEN').slice(0, 3).toUpperCase();
+  const deptCode = getReferencePrefix(userRole, department);
   const cacheKey = `${deptCode}_${year}_${departmentId || 'no-dept'}`;
 
   // Check cache first
@@ -422,7 +432,7 @@ async function generateUniqueReferenceOptimized(department: string, departmentId
 }
 
     // Generate unique reference using optimized method
-    const reference = await generateUniqueReferenceOptimized(pendingScan.department, pendingScan.departmentId);
+    const reference = await generateUniqueReferenceOptimized(pendingScan.department, pendingScan.departmentId, pendingScan.userRole);
 
     // Insert document using optimized method
     const docId = randomUUID();

@@ -260,12 +260,13 @@ const findEsclDeviceSync = (naps2Path: string, scannerName: string): string | nu
 };
 
 async function resolveUserScanContext(userId: string, folderId?: string) {
-  const userRes = await pool.query('SELECT name, department FROM users WHERE id = $1', [userId]);
+  const userRes = await pool.query('SELECT name, department, role FROM users WHERE id = $1', [userId]);
   if (userRes.rows.length === 0) {
     throw new Error('User not found');
   }
 
   const userName = userRes.rows[0].name;
+  const userRole = userRes.rows[0].role || 'staff';
   let userDepartment = userRes.rows[0].department || 'General';
 
   if (folderId) {
@@ -293,12 +294,20 @@ async function resolveUserScanContext(userId: string, folderId?: string) {
     departmentId = deptRes.rows[0].id;
   }
 
-  return { userName, userDepartment, departmentId };
+  return { userName, userRole, userDepartment, departmentId };
 }
 
-async function generateUniqueReference(department: string, departmentId?: string): Promise<string> {
+function getReferencePrefix(userRole: string | null | undefined, department: string): string {
+  if (String(userRole || '').toLowerCase() === 'admin') {
+    return 'ADM';
+  }
+
+  return (department || 'GEN').slice(0, 3).toUpperCase();
+}
+
+async function generateUniqueReference(department: string, departmentId?: string, userRole?: string): Promise<string> {
   const year = new Date().getFullYear();
-  const deptCode = (department || 'GEN').slice(0, 3).toUpperCase();
+  const deptCode = getReferencePrefix(userRole, department);
 
   let reference = '';
   let lastNumber = 1;
@@ -350,6 +359,7 @@ async function createScannedDocument(params: {
   folderId?: string;
   userId: string;
   userName: string;
+  userRole?: string;
   department: string;
   departmentId?: string;
   filePath: string;
@@ -361,7 +371,7 @@ async function createScannedDocument(params: {
   const fileSize = fs.statSync(params.filePath).size;
   const fileSizeStr = `${(fileSize / 1024 / 1024).toFixed(1)} MB`;
   const relativeFilePath = path.relative(process.cwd(), params.filePath).replace(/\\/g, '/');
-  const reference = await generateUniqueReference(params.department, params.departmentId);
+  const reference = await generateUniqueReference(params.department, params.departmentId, params.userRole);
   const docId = randomUUID();
 
   const insertRes = await pool.query(`
@@ -510,7 +520,7 @@ export const startScan = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Multi-page scanning currently supports PDF format only' });
     }
 
-    const { userName, userDepartment, departmentId } = await resolveUserScanContext(userId, folderId);
+    const { userName, userRole, userDepartment, departmentId } = await resolveUserScanContext(userId, folderId);
 
     let batchId: string | undefined;
     if (isMultiPage) {
@@ -534,6 +544,7 @@ export const startScan = async (req: AuthRequest, res: Response) => {
           folderId: folderId || '',
           userId,
           userName,
+          userRole,
           department: userDepartment,
           departmentId
         });
@@ -555,6 +566,7 @@ export const startScan = async (req: AuthRequest, res: Response) => {
       folderId: folderId || '',
       userId,
       userName,
+      userRole,
       department: userDepartment,
       departmentId,
       batchId,
