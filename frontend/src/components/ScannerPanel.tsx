@@ -764,7 +764,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
         <button
           type="button"
           onClick={() => {
-            void checkScannerAgent();
+            void refreshAgentStatus();
             void initializeScanner();
           }}
           disabled={loading}
