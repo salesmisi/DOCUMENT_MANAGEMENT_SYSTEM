@@ -8,7 +8,8 @@
     "build": "tsc",
     "local-agent": "node scripts/local-scanner-agent.js",
     "prestart": "npm run build",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "start:railway": "node server.js"
   },
   "keywords": [],
   "author": "",
