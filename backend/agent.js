@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const { randomUUID } = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 
@@ -14,6 +15,7 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost:5173',
   'https://documentmanagementsystem-production-9d6e.up.railway.app',
 ]);
+const previewSessions = new Map();
 
 fs.mkdirSync(SCANS_DIR, { recursive: true });
 
@@ -132,6 +134,46 @@ function buildScanArgs({ outputPath, scanner, dpi, color, paperSize, format }) {
   return args;
 }
 
+function parseScannerList(stdout) {
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => ({
+      id: line,
+      name: line,
+    }));
+}
+
+async function listScanners() {
+  const naps2Path = await findNaps2Executable();
+
+  if (!naps2Path) {
+    return [];
+  }
+
+  try {
+    const { stdout } = await execFileAsync(naps2Path, ['--listdevices'], {
+      timeout: 30000,
+      windowsHide: true,
+    });
+
+    return parseScannerList(stdout);
+  } catch {
+    try {
+      const { stdout } = await execFileAsync(naps2Path, ['--listdevices', '--driver', 'wia'], {
+        timeout: 30000,
+        windowsHide: true,
+      });
+
+      return parseScannerList(stdout);
+    } catch (error) {
+      log('Scanner listing failed, returning empty list', error?.message || error);
+      return [];
+    }
+  }
+}
+
 async function runScan(options) {
   const naps2Path = await findNaps2Executable();
 
@@ -175,6 +217,17 @@ app.get('/status', async (_req, res) => {
   }
 });
 
+app.get('/scanners', async (_req, res) => {
+  log('/scanners called');
+
+  try {
+    const scanners = await listScanners();
+    res.json(scanners);
+  } catch {
+    res.json([]);
+  }
+});
+
 app.post('/scan', async (req, res) => {
   log('/scan called', req.body || {});
 
@@ -210,6 +263,68 @@ app.post('/scan', async (req, res) => {
       error: error.message || 'Scan failed.',
     });
   }
+});
+
+app.post('/scan-local', async (req, res) => {
+  log('/scan-local called', req.body || {});
+
+  try {
+    const { scanner, dpi, color, paperSize, format } = req.body || {};
+    const fileExtension = (String(format || 'pdf').trim().toLowerCase() === 'png') ? 'png' : 'pdf';
+    const sessionId = randomUUID();
+    const outputPath = path.join(SCANS_DIR, `${sessionId}.${fileExtension}`);
+
+    await runScan({
+      outputPath,
+      scanner,
+      dpi,
+      color,
+      paperSize,
+      format: fileExtension,
+    });
+
+    previewSessions.set(sessionId, {
+      filePath: outputPath,
+      createdAt: Date.now(),
+    });
+
+    res.json({ sessionId });
+  } catch (error) {
+    if (error.code === 'NAPS2_NOT_FOUND') {
+      res.status(503).json({
+        error: 'NAPS2 is not installed.',
+      });
+      return;
+    }
+
+    res.status(500).json({
+      error: error.message || 'Local preview scan failed.',
+    });
+  }
+});
+
+app.get('/scan/:sessionId/preview', (req, res) => {
+  const session = previewSessions.get(req.params.sessionId);
+
+  if (!session || !fs.existsSync(session.filePath)) {
+    res.status(404).json({ error: 'Preview session not found.' });
+    return;
+  }
+
+  res.sendFile(path.resolve(session.filePath));
+});
+
+app.delete('/scan/:sessionId', async (req, res) => {
+  const session = previewSessions.get(req.params.sessionId);
+
+  if (!session) {
+    res.status(404).json({ error: 'Preview session not found.' });
+    return;
+  }
+
+  previewSessions.delete(req.params.sessionId);
+  await fs.promises.unlink(session.filePath).catch(() => undefined);
+  res.status(204).send();
 });
 
 app.use((error, _req, res, _next) => {
