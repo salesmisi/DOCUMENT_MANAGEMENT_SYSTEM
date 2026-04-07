@@ -164,6 +164,19 @@ async function runMigrations() {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS notification_preferences (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        browser_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        approvals_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await safeQuery(`CREATE INDEX IF NOT EXISTS idx_notif_prefs_user ON notification_preferences(user_id)`, 'notification_preferences user index');
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS document_shared_users (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,

@@ -17,7 +17,7 @@ const ALLOWED_ORIGINS = new Set([
 
 fs.mkdirSync(SCANS_DIR, { recursive: true });
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
     if (!origin || ALLOWED_ORIGINS.has(origin)) {
       callback(null, true);
@@ -27,7 +27,21 @@ app.use(cors({
     callback(new Error(`CORS blocked for origin: ${origin}`));
   },
   credentials: true,
-}));
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 204,
+};
+
+app.use((req, res, next) => {
+  if (req.headers['access-control-request-private-network'] === 'true') {
+    res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  }
+
+  next();
+});
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
 
 function log(message, meta) {
