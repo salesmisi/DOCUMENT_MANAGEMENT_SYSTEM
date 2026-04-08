@@ -311,7 +311,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
         <div>
           <h2 className="text-2xl font-bold text-[#1f3d1c]">Local Scanner Agent</h2>
           <p className="mt-1 text-sm text-[#5f6f52]">
-            Scan from a local NAPS2-connected device and upload straight into the DMS.
+            Set up scanning by installing the Local Agent and NAPS2 on your computer first.
           </p>
         </div>
 
