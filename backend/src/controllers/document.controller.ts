@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { restoreDocumentWithHierarchy } from '../services/restore.service';
+import { notifyApprovers } from './notification.controller';
 
 async function resolveFolderDepartment(currentFolderId: string): Promise<string | null> {
   const folderRes = await pool.query(
@@ -205,6 +206,11 @@ export const createDocument = async (req: AuthRequest, res: Response) => {
     );
 
     const created = insertRes.rows[0];
+
+    if (needsApproval) {
+      void notifyApprovers(created.id, created.title || title);
+    }
+
     return res.status(201).json({ message: 'Document uploaded successfully', reference: created.reference, document: created });
 
   } catch (err: any) {

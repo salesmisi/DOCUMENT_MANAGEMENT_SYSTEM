@@ -53,13 +53,13 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
     icon: <LayoutDashboard size={18} />,
     roles: ['admin', 'manager', 'staff']
   },
-  ...(user?.role === 'manager' ?
+  ...(user?.role === 'manager' || user?.role === 'admin' ?
   [
   {
     id: 'approvals' as PageName,
     label: t('pendingApprovals'),
     icon: <CheckSquare size={18} />,
-    roles: ['manager'],
+    roles: ['admin', 'manager'],
     badge: pendingCount
   }] :
 

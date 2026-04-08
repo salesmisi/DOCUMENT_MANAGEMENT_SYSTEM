@@ -164,7 +164,9 @@ function AppContent() {
         if (user.role === 'manager') return <ManagerDashboard />;
         return <StaffDashboard />;
       case 'approvals':
-        return <ManagerDashboard />;
+        if (user.role === 'admin') return <AdminDashboard />;
+        if (user.role === 'manager') return <ManagerDashboard />;
+        return <StaffDashboard />;
       case 'documents':
         return <DocumentsPage />;
       case 'scanner':

@@ -14,7 +14,7 @@ interface UploadModalProps {
   defaultFolderId?: string;
 }
 export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
-  const { addDocument, folders, addLog } = useDocuments();
+  const { addDocument, folders, addLog, refreshDocuments } = useDocuments();
   const { user, token } = useAuth();
   const requiresApproval = user?.role === 'staff';
   const [form, setForm] = useState({
@@ -195,6 +195,7 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
       };
 
       addDocument(localDoc as any);
+      await refreshDocuments();
 
       addLog({
         userId: user?.id || '',
