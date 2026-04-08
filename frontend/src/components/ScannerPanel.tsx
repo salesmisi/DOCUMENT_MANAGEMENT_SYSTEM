@@ -49,6 +49,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
     uploadPreview,
     addMultiPageScan,
     finalizeMultiPageUpload,
+    removeMultiPageScan,
     clearMultiPageScans,
     cancelPreview,
     clearMessages,
@@ -241,6 +242,11 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
 
     await finalizeMultiPageUpload(title, targetFolderId);
     await onUploaded?.();
+  };
+
+  const handleRemoveMultiPageScan = (scanId: string) => {
+    clearMessages();
+    removeMultiPageScan(scanId);
   };
 
   const handleDetectScanners = async () => {
@@ -464,7 +470,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() => void handlePreviewRecentScan(scan.documentId!)}
+                          onClick={() => void handlePreviewRecentScan(scan.documentId)}
                           className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#c7be98] bg-white px-4 py-2 text-sm font-semibold text-[#3c4d2d] transition hover:bg-[#f4f0df]"
                         >
                           <Eye size={16} />
@@ -472,7 +478,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
                         </button>
                         <button
                           type="button"
-                          onClick={() => void handleDownloadRecentScan(scan.documentId!, scan.title, scan.fileType)}
+                          onClick={() => void handleDownloadRecentScan(scan.documentId, scan.title, scan.fileType)}
                           className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#1f6f43] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#175736]"
                         >
                           <Download size={16} />
@@ -778,7 +784,18 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {multiPageScans.map((item, index) => (
               <div key={item.id} className="rounded-2xl border border-[#e3dbc1] bg-white p-3">
-                <div className="mb-3 text-sm font-semibold text-[#355130]">Page {index + 1}</div>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-[#355130]">Page {index + 1}</div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveMultiPageScan(item.id)}
+                    disabled={loading}
+                    className="inline-flex items-center justify-center gap-1 rounded-full border border-[#d9cfae] px-2.5 py-1 text-xs font-semibold text-[#7a5d2f] transition hover:bg-[#fbf3df] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <XCircle size={14} />
+                    Remove
+                  </button>
+                </div>
                 <iframe
                   src={item.previewUrl}
                   title={`Multi-page scan preview ${index + 1}`}

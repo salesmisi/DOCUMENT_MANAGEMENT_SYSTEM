@@ -141,6 +141,18 @@ export function useScanner() {
     });
   }, []);
 
+  const removeMultiPageScan = useCallback((scanId: string) => {
+    setMultiPageScans((current) => {
+      const targetScan = current.find((item) => item.id === scanId);
+
+      if (targetScan) {
+        URL.revokeObjectURL(targetScan.previewUrl);
+      }
+
+      return current.filter((item) => item.id !== scanId);
+    });
+  }, []);
+
   const initializeScanner = useCallback(async (options: InitializeScannerOptions = {}) => {
     const { silent = false, forceRefresh = false } = options;
 
@@ -506,6 +518,7 @@ export function useScanner() {
     uploadPreview,
     addMultiPageScan,
     finalizeMultiPageUpload,
+    removeMultiPageScan,
     clearMultiPageScans,
     cancelPreview: clearPreview,
     clearMessages: () => {
