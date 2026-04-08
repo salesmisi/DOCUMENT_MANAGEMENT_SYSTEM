@@ -162,6 +162,23 @@ const isScannerUiCacheFresh = () => (
   && (Date.now() - scannerUiCacheState.lastSyncedAt) < SCANNER_UI_CACHE_TTL_MS
 );
 
+const normalizeScanErrorMessage = (error: unknown, scanSource?: string) => {
+  const rawMessage = error instanceof Error ? error.message : 'Scan failed.';
+  const normalizedMessage = rawMessage.toLowerCase();
+  const usingFeeder = String(scanSource || '').trim().toLowerCase() === 'feeder';
+  const feederRelatedFailure = /--source feeder|adf|feeder.*empty|no paper|paper empty|document feeder|load paper|paper jam|document is not loaded|command failed/i.test(rawMessage);
+
+  if (usingFeeder && feederRelatedFailure) {
+    return 'Reminder: no paper is inserted in the feeder. Load paper into the ADF, then try scanning again.';
+  }
+
+  if (usingFeeder && /timed?\s*out|timeout/i.test(normalizedMessage)) {
+    return 'Reminder: no paper may be inserted in the feeder. Load paper into the ADF, then try scanning again.';
+  }
+
+  return rawMessage;
+};
+
 export function useScanner() {
   const [agentOnline, setAgentOnline] = useState(scannerUiCacheState.agentOnline);
   const [scannerAvailable, setScannerAvailable] = useState(scannerUiCacheState.scannerAvailable);
@@ -455,7 +472,7 @@ export function useScanner() {
       clearPreview();
       return result;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Scan failed.';
+      const message = normalizeScanErrorMessage(err, values.scanSource);
       setError(message);
       prependRecentScan(buildRecentScanEntry('failed', values.title.trim() || 'Untitled scan', message));
       throw err;
@@ -496,7 +513,7 @@ export function useScanner() {
 
       return sessionId;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Preview scan failed.';
+      const message = normalizeScanErrorMessage(err, values?.scanSource);
       setError(message);
       throw err;
     } finally {
@@ -589,7 +606,7 @@ export function useScanner() {
 
       return sessionId;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Multi-page scan failed.';
+      const message = normalizeScanErrorMessage(err, values?.scanSource);
       setError(message);
       throw err;
     } finally {

@@ -66,6 +66,8 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
   const [multiPageEnabled, setMultiPageEnabled] = useState(false);
   const [showDocumentTypeCodes, setShowDocumentTypeCodes] = useState(false);
 
+  const errorLooksLikeReminder = Boolean(error && /reminder:\s*no paper.*feeder|load paper into the adf/i.test(error));
+
   const formatRecentScanDate = (value: string) => {
     const date = new Date(value);
 
@@ -340,7 +342,11 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
       )}
 
       {error && (
-        <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className={`mt-5 rounded-2xl px-4 py-3 text-sm ${
+          errorLooksLikeReminder
+            ? 'border border-amber-200 bg-amber-50 text-amber-800'
+            : 'border border-red-200 bg-red-50 text-red-700'
+        }`}>
           {error}
         </div>
       )}
@@ -447,48 +453,52 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
             </div>
           ) : (
             <div className="mt-5 space-y-3">
-              {recentScans.map((scan) => (
-                <div key={scan.id} className="rounded-2xl border border-[#e7dfc2] bg-[#fcfbf5] p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                          scan.status === 'success'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-[#fff2df] text-[#c87400]'
-                        }`}>
-                          <span className={`h-1.5 w-1.5 rounded-full ${scan.status === 'success' ? 'bg-green-500' : 'bg-[#f59e0b]'}`} />
-                          {scan.status === 'success' ? 'Success' : 'Failed'}
-                        </span>
-                        <span className="text-xs text-[#8a927f]">{formatRecentScanDate(scan.createdAt)}</span>
-                      </div>
-                      <div className="mt-2 text-base font-semibold text-[#20371f]">{scan.title}</div>
-                      <p className="mt-1 text-sm text-[#6b7680]">{scan.message}</p>
-                    </div>
+              {recentScans.map((scan) => {
+                const documentId = scan.documentId;
 
-                    {scan.status === 'success' && scan.documentId && (
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handlePreviewRecentScan(scan.documentId)}
-                          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#c7be98] bg-white px-4 py-2 text-sm font-semibold text-[#3c4d2d] transition hover:bg-[#f4f0df]"
-                        >
-                          <Eye size={16} />
-                          Preview
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDownloadRecentScan(scan.documentId, scan.title, scan.fileType)}
-                          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#1f6f43] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#175736]"
-                        >
-                          <Download size={16} />
-                          Download
-                        </button>
+                return (
+                  <div key={scan.id} className="rounded-2xl border border-[#e7dfc2] bg-[#fcfbf5] p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            scan.status === 'success'
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-[#fff2df] text-[#c87400]'
+                          }`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${scan.status === 'success' ? 'bg-green-500' : 'bg-[#f59e0b]'}`} />
+                            {scan.status === 'success' ? 'Success' : 'Failed'}
+                          </span>
+                          <span className="text-xs text-[#8a927f]">{formatRecentScanDate(scan.createdAt)}</span>
+                        </div>
+                        <div className="mt-2 text-base font-semibold text-[#20371f]">{scan.title}</div>
+                        <p className="mt-1 text-sm text-[#6b7680]">{scan.message}</p>
                       </div>
-                    )}
+
+                      {scan.status === 'success' && documentId && (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handlePreviewRecentScan(documentId)}
+                            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#c7be98] bg-white px-4 py-2 text-sm font-semibold text-[#3c4d2d] transition hover:bg-[#f4f0df]"
+                          >
+                            <Eye size={16} />
+                            Preview
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDownloadRecentScan(documentId, scan.title, scan.fileType)}
+                            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#1f6f43] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#175736]"
+                          >
+                            <Download size={16} />
+                            Download
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
