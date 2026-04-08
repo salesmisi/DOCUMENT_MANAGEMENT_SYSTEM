@@ -35,6 +35,16 @@ interface InitializeScannerOptions {
   forceRefresh?: boolean;
 }
 
+interface ScannerUiCache {
+  agentOnline: boolean;
+  scannerAvailable: boolean;
+  scannerStatusMessage: string;
+  scanners: ScannerAgentDevice[];
+  selectedScanner: string;
+  recentScans: RecentScanEntry[];
+  lastSyncedAt: number;
+}
+
 export interface RecentScanEntry {
   id: string;
   title: string;
@@ -90,12 +100,74 @@ const normalizeFolderId = (folderId: string) => {
   return trimmedFolderId;
 };
 
+const SCANNER_UI_CACHE_KEY = 'dms_scanner_ui_cache';
+const SCANNER_UI_CACHE_TTL_MS = 2 * 60 * 1000;
+
+const defaultScannerUiCache = (): ScannerUiCache => ({
+  agentOnline: false,
+  scannerAvailable: false,
+  scannerStatusMessage: 'Agent Not Detected',
+  scanners: [],
+  selectedScanner: '',
+  recentScans: [],
+  lastSyncedAt: 0,
+});
+
+const readScannerUiCache = (): ScannerUiCache => {
+  if (typeof window === 'undefined') {
+    return defaultScannerUiCache();
+  }
+
+  try {
+    const rawCache = window.sessionStorage.getItem(SCANNER_UI_CACHE_KEY);
+
+    if (!rawCache) {
+      return defaultScannerUiCache();
+    }
+
+    const parsedCache = JSON.parse(rawCache) as Partial<ScannerUiCache>;
+
+    return {
+      ...defaultScannerUiCache(),
+      ...parsedCache,
+      scanners: Array.isArray(parsedCache.scanners) ? parsedCache.scanners : [],
+      recentScans: Array.isArray(parsedCache.recentScans) ? parsedCache.recentScans : [],
+      lastSyncedAt: typeof parsedCache.lastSyncedAt === 'number' ? parsedCache.lastSyncedAt : 0,
+    };
+  } catch {
+    return defaultScannerUiCache();
+  }
+};
+
+const scannerUiCacheState: ScannerUiCache = readScannerUiCache();
+
+const writeScannerUiCache = (cache: ScannerUiCache) => {
+  scannerUiCacheState.agentOnline = cache.agentOnline;
+  scannerUiCacheState.scannerAvailable = cache.scannerAvailable;
+  scannerUiCacheState.scannerStatusMessage = cache.scannerStatusMessage;
+  scannerUiCacheState.scanners = cache.scanners;
+  scannerUiCacheState.selectedScanner = cache.selectedScanner;
+  scannerUiCacheState.recentScans = cache.recentScans;
+  scannerUiCacheState.lastSyncedAt = cache.lastSyncedAt;
+
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.sessionStorage.setItem(SCANNER_UI_CACHE_KEY, JSON.stringify(cache));
+};
+
+const isScannerUiCacheFresh = () => (
+  scannerUiCacheState.lastSyncedAt > 0
+  && (Date.now() - scannerUiCacheState.lastSyncedAt) < SCANNER_UI_CACHE_TTL_MS
+);
+
 export function useScanner() {
-  const [agentOnline, setAgentOnline] = useState(false);
-  const [scannerAvailable, setScannerAvailable] = useState(false);
-  const [scannerStatusMessage, setScannerStatusMessage] = useState('Agent Not Detected');
-  const [scanners, setScanners] = useState<ScannerAgentDevice[]>([]);
-  const [selectedScanner, setSelectedScanner] = useState('');
+  const [agentOnline, setAgentOnline] = useState(scannerUiCacheState.agentOnline);
+  const [scannerAvailable, setScannerAvailable] = useState(scannerUiCacheState.scannerAvailable);
+  const [scannerStatusMessage, setScannerStatusMessage] = useState(scannerUiCacheState.scannerStatusMessage);
+  const [scanners, setScanners] = useState<ScannerAgentDevice[]>(scannerUiCacheState.scanners);
+  const [selectedScanner, setSelectedScannerState] = useState(scannerUiCacheState.selectedScanner);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -105,9 +177,17 @@ export function useScanner() {
   const previewObjectUrlRef = useRef<string | null>(null);
   const [multiPageScans, setMultiPageScans] = useState<MultiPageScanItem[]>([]);
   const multiPageScansRef = useRef<MultiPageScanItem[]>([]);
-  const [recentScans, setRecentScans] = useState<RecentScanEntry[]>([]);
+  const [recentScans, setRecentScans] = useState<RecentScanEntry[]>(scannerUiCacheState.recentScans);
   const scannersRef = useRef<ScannerAgentDevice[]>([]);
   const loadingRef = useRef(false);
+
+  const setSelectedScanner = useCallback((value: string | ((current: string) => string)) => {
+    setSelectedScannerState((current) => (
+      typeof value === 'function'
+        ? (value as (current: string) => string)(current)
+        : value
+    ));
+  }, []);
 
   const prependRecentScan = useCallback((entry: RecentScanEntry) => {
     setRecentScans((current) => [entry, ...current].slice(0, 8));
@@ -156,6 +236,16 @@ export function useScanner() {
   const initializeScanner = useCallback(async (options: InitializeScannerOptions = {}) => {
     const { silent = false, forceRefresh = false } = options;
 
+    if (!forceRefresh && isScannerUiCacheFresh() && scannerUiCacheState.scanners.length > 0) {
+      setAgentOnline(scannerUiCacheState.agentOnline);
+      setScannerAvailable(scannerUiCacheState.scannerAvailable);
+      setScannerStatusMessage(scannerUiCacheState.scannerStatusMessage);
+      setScanners(scannerUiCacheState.scanners);
+      setSelectedScannerState((current) => current || scannerUiCacheState.selectedScanner || scannerUiCacheState.scanners[0]?.id || '');
+      setRecentScans((current) => current.length > 0 ? current : scannerUiCacheState.recentScans);
+      return scannerUiCacheState.scannerAvailable;
+    }
+
     if (!silent) {
       setLoading(true);
       setError(null);
@@ -179,7 +269,16 @@ export function useScanner() {
 
       if (!readyForScanning) {
         setScanners([]);
-        setSelectedScanner('');
+        setSelectedScannerState('');
+        writeScannerUiCache({
+          ...scannerUiCacheState,
+          agentOnline: false,
+          scannerAvailable: false,
+          scannerStatusMessage: connected ? 'Agent detected, but NAPS2 is not ready.' : 'Agent Not Detected',
+          scanners: [],
+          selectedScanner: '',
+          lastSyncedAt: Date.now(),
+        });
         return false;
       }
 
@@ -189,12 +288,29 @@ export function useScanner() {
 
       const availableScanners = await getScanners();
       setScanners(availableScanners);
-      setSelectedScanner((current) => {
+      setSelectedScannerState((current) => {
         if (current && availableScanners.some((scanner) => scanner.id === current)) {
           return current;
         }
 
         return availableScanners[0]?.id || '';
+      });
+
+      const nextSelectedScanner = (
+        (selectedScanner && availableScanners.some((scanner) => scanner.id === selectedScanner))
+          ? selectedScanner
+          : availableScanners[0]?.id || ''
+      );
+
+      writeScannerUiCache({
+        ...scannerUiCacheState,
+        agentOnline: readyForScanning,
+        scannerAvailable: readyForScanning,
+        scannerStatusMessage: 'Agent Connected',
+        scanners: availableScanners,
+        selectedScanner: nextSelectedScanner,
+        recentScans: scannerUiCacheState.recentScans,
+        lastSyncedAt: Date.now(),
       });
 
       return true;
@@ -203,7 +319,16 @@ export function useScanner() {
       setScannerAvailable(false);
       setScannerStatusMessage('Agent Not Detected');
       setScanners([]);
-      setSelectedScanner('');
+      setSelectedScannerState('');
+      writeScannerUiCache({
+        ...scannerUiCacheState,
+        agentOnline: false,
+        scannerAvailable: false,
+        scannerStatusMessage: 'Agent Not Detected',
+        scanners: [],
+        selectedScanner: '',
+        lastSyncedAt: Date.now(),
+      });
       return false;
     } finally {
       if (!silent) {
@@ -217,6 +342,18 @@ export function useScanner() {
   }, [scanners]);
 
   useEffect(() => {
+    writeScannerUiCache({
+      agentOnline,
+      scannerAvailable,
+      scannerStatusMessage,
+      scanners,
+      selectedScanner,
+      recentScans,
+      lastSyncedAt: scannerUiCacheState.lastSyncedAt,
+    });
+  }, [agentOnline, recentScans, scannerAvailable, scannerStatusMessage, scanners, selectedScanner]);
+
+  useEffect(() => {
     loadingRef.current = loading;
   }, [loading]);
 
@@ -227,6 +364,10 @@ export function useScanner() {
   useEffect(() => {
     const syncAgentState = () => {
       if (loadingRef.current) {
+        return;
+      }
+
+      if (isScannerUiCacheFresh() && scannersRef.current.length > 0) {
         return;
       }
 
