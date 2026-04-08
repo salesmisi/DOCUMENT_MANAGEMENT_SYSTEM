@@ -119,14 +119,22 @@ const normalizeColorMode = (color?: string) => {
   const normalizedColor = String(color || 'color').trim().toLowerCase();
 
   if (normalizedColor === 'grayscale' || normalizedColor === 'greyscale') {
-    return 'gray';
+    return '8';
   }
 
   if (normalizedColor === 'black & white' || normalizedColor === 'black-and-white') {
-    return 'bw';
+    return '1';
   }
 
-  return normalizedColor || 'color';
+  if (normalizedColor === 'gray' || normalizedColor === 'grey') {
+    return '8';
+  }
+
+  if (normalizedColor === 'bw' || normalizedColor === 'blackwhite') {
+    return '1';
+  }
+
+  return '24';
 };
 
 const normalizePaperSize = (paperSize?: string) => {

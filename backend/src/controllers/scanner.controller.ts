@@ -491,14 +491,19 @@ export const startScan = async (req: AuthRequest, res: Response) => {
 
     // Map color mode to NAPS2 bitdepth values
     const colorModeMap: Record<string, string> = {
-      'bw': 'bw',
-      'blackwhite': 'bw',
-      'black & white': 'bw',
-      'gray': 'gray',
-      'grayscale': 'gray',
-      'color': 'color'
+      '1': '1',
+      '8': '8',
+      '24': '24',
+      'bw': '1',
+      'blackwhite': '1',
+      'black & white': '1',
+      'gray': '8',
+      'grey': '8',
+      'grayscale': '8',
+      'greyscale': '8',
+      'color': '24'
     };
-    const effectiveColorMode = colorModeMap[String(colorMode).toLowerCase()] || 'color';
+    const effectiveColorMode = colorModeMap[String(colorMode).toLowerCase()] || '24';
 
     // Map paper size to NAPS2 pagesize values
     const paperSizeMap: Record<string, string> = {
