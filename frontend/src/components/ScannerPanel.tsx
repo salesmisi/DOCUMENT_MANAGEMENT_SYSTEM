@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Clock3, Download, Eye, Info, Loader2, Monitor, RotateCw, ScanLine, Settings2, Upload, WifiOff, XCircle } from 'lucide-react';
 import { useScanner } from '../hooks/useScanner';
-import { detectAgent } from '../services/scannerService';
 import { apiUrl } from '../utils/api';
 
 const DOCUMENT_TYPE_CODES = [
@@ -32,6 +31,8 @@ interface ScannerPanelProps {
 export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
   const {
     agentOnline,
+    scannerAvailable,
+    scannerStatusMessage,
     scanners,
     selectedScanner,
     setSelectedScanner,
@@ -62,8 +63,6 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
   const [scanSource, setScanSource] = useState('glass');
   const [format, setFormat] = useState('pdf');
   const [multiPageEnabled, setMultiPageEnabled] = useState(false);
-  const [scannerAvailable, setScannerAvailable] = useState(false);
-  const [scannerStatusMessage, setScannerStatusMessage] = useState('Agent Not Detected');
   const [showDocumentTypeCodes, setShowDocumentTypeCodes] = useState(false);
 
   const formatRecentScanDate = (value: string) => {
@@ -123,22 +122,6 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
 
   const targetFolderId = subfolderId;
   const hasRequiredScanFields = Boolean(title.trim() && departmentFolderId && subfolderId);
-
-  const refreshAgentStatus = useCallback(async () => {
-    const agent = await detectAgent();
-    const connected = Boolean(agent?.running);
-    const readyForScanning = Boolean(agent?.running && agent?.naps2);
-
-    setScannerAvailable(readyForScanning);
-    setScannerStatusMessage(connected ? 'Agent Connected' : 'Agent Not Detected');
-
-    return connected;
-  }, []);
-
-  useEffect(() => {
-    void refreshAgentStatus();
-    void initializeScanner();
-  }, [initializeScanner, refreshAgentStatus]);
 
   useEffect(() => {
     if (!departmentFolderId && departmentFolders.length > 0) {
@@ -262,8 +245,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
 
   const handleDetectScanners = async () => {
     clearMessages();
-    await refreshAgentStatus();
-    await initializeScanner();
+    await initializeScanner({ forceRefresh: true });
   };
 
   const handlePreviewRecentScan = async (documentId: string) => {
@@ -764,8 +746,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
         <button
           type="button"
           onClick={() => {
-            void refreshAgentStatus();
-            void initializeScanner();
+            void initializeScanner({ forceRefresh: true });
           }}
           disabled={loading}
           className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#d7d1b4] px-5 py-3 text-sm font-semibold text-[#435233] transition hover:bg-[#f7f4e7] disabled:cursor-not-allowed disabled:opacity-60"

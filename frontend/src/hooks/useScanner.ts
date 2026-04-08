@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import {
-  checkAgent,
+  detectAgent,
   discardScan,
   getPreview,
   getPreviewBlob,
@@ -28,6 +28,11 @@ interface MultiPageScanItem {
   id: string;
   previewUrl: string;
   blob: Blob;
+}
+
+interface InitializeScannerOptions {
+  silent?: boolean;
+  forceRefresh?: boolean;
 }
 
 export interface RecentScanEntry {
@@ -87,6 +92,8 @@ const normalizeFolderId = (folderId: string) => {
 
 export function useScanner() {
   const [agentOnline, setAgentOnline] = useState(false);
+  const [scannerAvailable, setScannerAvailable] = useState(false);
+  const [scannerStatusMessage, setScannerStatusMessage] = useState('Agent Not Detected');
   const [scanners, setScanners] = useState<ScannerAgentDevice[]>([]);
   const [selectedScanner, setSelectedScanner] = useState('');
   const [loading, setLoading] = useState(false);
@@ -99,6 +106,8 @@ export function useScanner() {
   const [multiPageScans, setMultiPageScans] = useState<MultiPageScanItem[]>([]);
   const multiPageScansRef = useRef<MultiPageScanItem[]>([]);
   const [recentScans, setRecentScans] = useState<RecentScanEntry[]>([]);
+  const scannersRef = useRef<ScannerAgentDevice[]>([]);
+  const loadingRef = useRef(false);
 
   const prependRecentScan = useCallback((entry: RecentScanEntry) => {
     setRecentScans((current) => [entry, ...current].slice(0, 8));
@@ -132,19 +141,38 @@ export function useScanner() {
     });
   }, []);
 
-  const initializeScanner = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    setSuccessMessage(null);
+  const initializeScanner = useCallback(async (options: InitializeScannerOptions = {}) => {
+    const { silent = false, forceRefresh = false } = options;
+
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+      setSuccessMessage(null);
+    }
 
     try {
-      const online = await checkAgent();
-      setAgentOnline(online);
+      const agent = await detectAgent();
+      const connected = Boolean(agent?.running);
+      const readyForScanning = Boolean(agent?.running && agent?.naps2);
 
-      if (!online) {
+      setScannerAvailable(readyForScanning);
+      setScannerStatusMessage(
+        readyForScanning
+          ? 'Agent Connected'
+          : connected
+            ? 'Agent detected, but NAPS2 is not ready.'
+            : 'Agent Not Detected'
+      );
+      setAgentOnline(readyForScanning);
+
+      if (!readyForScanning) {
         setScanners([]);
         setSelectedScanner('');
         return false;
+      }
+
+      if (!forceRefresh && scannersRef.current.length > 0) {
+        return true;
       }
 
       const availableScanners = await getScanners();
@@ -160,17 +188,61 @@ export function useScanner() {
       return true;
     } catch (err) {
       setAgentOnline(false);
+      setScannerAvailable(false);
+      setScannerStatusMessage('Agent Not Detected');
       setScanners([]);
       setSelectedScanner('');
       return false;
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
+    scannersRef.current = scanners;
+  }, [scanners]);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  useEffect(() => {
     multiPageScansRef.current = multiPageScans;
   }, [multiPageScans]);
+
+  useEffect(() => {
+    const syncAgentState = () => {
+      if (loadingRef.current) {
+        return;
+      }
+
+      void initializeScanner({
+        silent: true,
+        forceRefresh: scannersRef.current.length === 0,
+      });
+    };
+
+    syncAgentState();
+
+    const intervalId = window.setInterval(syncAgentState, 5000);
+    const handleFocus = () => syncAgentState();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncAgentState();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [initializeScanner]);
 
   useEffect(() => {
     return () => {
@@ -415,6 +487,8 @@ export function useScanner() {
 
   return {
     agentOnline,
+    scannerAvailable,
+    scannerStatusMessage,
     scanners,
     selectedScanner,
     setSelectedScanner,
