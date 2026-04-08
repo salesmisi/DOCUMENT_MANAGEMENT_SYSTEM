@@ -24,6 +24,7 @@ import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ActivityLogExportPopup } from './components/ActivityLogExportPopup';
 import { apiUrl } from './utils/api';
+import { BrowserRouter, Navigate, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 export type PageName =
   'dashboard' |
   'documents' |
@@ -53,16 +54,75 @@ export const NavigationContext = createContext<NavigationContextType>({
 export function useNavigation() {
   return useContext(NavigationContext);
 }
+
+const PAGE_TO_PATH: Record<PageName, string> = {
+  dashboard: '/home',
+  documents: '/files',
+  scanner: '/scan',
+  users: '/users',
+  folders: '/folders',
+  departments: '/departments',
+  archive: '/archive',
+  trash: '/trash',
+  'activity-log': '/activity-log',
+  approvals: '/approvals',
+  'admin-delete-requests': '/delete-requests',
+  profile: '/profile',
+  settings: '/settings',
+};
+
+const PATH_TO_PAGE: Record<string, PageName> = {
+  '/': 'dashboard',
+  '/home': 'dashboard',
+  '/dashboard': 'dashboard',
+  '/files': 'documents',
+  '/documents': 'documents',
+  '/scan': 'scanner',
+  '/scanner': 'scanner',
+  '/users': 'users',
+  '/folders': 'folders',
+  '/departments': 'departments',
+  '/archive': 'archive',
+  '/trash': 'trash',
+  '/activity-log': 'activity-log',
+  '/approvals': 'approvals',
+  '/delete-requests': 'admin-delete-requests',
+  '/admin-delete-requests': 'admin-delete-requests',
+  '/profile': 'profile',
+  '/settings': 'settings',
+};
+
+const normalizePathname = (pathname: string) => {
+  if (!pathname || pathname === '/') {
+    return '/';
+  }
+
+  return pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+};
+
+const resolvePageFromPath = (pathname: string): PageName | null => {
+  const normalizedPath = normalizePathname(pathname);
+  return PATH_TO_PAGE[normalizedPath] || null;
+};
+
 function AppContent() {
   const { user } = useAuth();
   const { createNotification, deleteNotificationsByType } = useNotifications();
-  const [currentPage, setCurrentPage] = useState<PageName>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [logCount, setLogCount] = useState(0);
   const [showExportPopup, setShowExportPopup] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const navigate = (page: PageName) => setCurrentPage(page);
+  const location = useLocation();
+  const routerNavigate = useNavigate();
+  const currentPage = resolvePageFromPath(location.pathname) || 'dashboard';
+  const navigate = useCallback((page: PageName) => {
+    const nextPath = PAGE_TO_PATH[page] || '/home';
+
+    if (normalizePathname(location.pathname) !== nextPath) {
+      routerNavigate(nextPath);
+    }
+  }, [location.pathname, routerNavigate]);
   const selectFolder = (id: string | null) => setSelectedFolderId(id);
 
   const checkLogCount = useCallback(async () => {
@@ -90,9 +150,13 @@ function AppContent() {
     const interval = setInterval(checkLogCount, 30000);
     return () => clearInterval(interval);
   }, [user, checkLogCount]);
+
   if (!user) {
     return <LoginPage />;
   }
+
+  const routeIsKnown = Boolean(resolvePageFromPath(location.pathname));
+
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
@@ -127,7 +191,8 @@ function AppContent() {
         return <StaffDashboard />;
     }
   };
-  return (
+
+  const appShell = (
     <NavigationContext.Provider
       value={{
         currentPage,
@@ -176,23 +241,33 @@ function AppContent() {
           }}
         />
       )}
-    </NavigationContext.Provider>);
+    </NavigationContext.Provider>
+  );
+
+  return (
+    <Routes>
+      <Route path="/" element={<Navigate to="/home" replace />} />
+      <Route path="*" element={routeIsKnown ? appShell : <Navigate to="/home" replace />} />
+    </Routes>
+  );
 
 }
 export function App() {
   return (
-    <LanguageProvider>
-      <LogoProvider>
-        <ThemeProvider>
-          <AuthProvider>
-            <DocumentProvider>
-              <NotificationProvider>
-                <AppContent />
-              </NotificationProvider>
-            </DocumentProvider>
-          </AuthProvider>
-        </ThemeProvider>
-      </LogoProvider>
-    </LanguageProvider>);
+    <BrowserRouter>
+      <LanguageProvider>
+        <LogoProvider>
+          <ThemeProvider>
+            <AuthProvider>
+              <DocumentProvider>
+                <NotificationProvider>
+                  <AppContent />
+                </NotificationProvider>
+              </DocumentProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </LogoProvider>
+      </LanguageProvider>
+    </BrowserRouter>);
 
 }

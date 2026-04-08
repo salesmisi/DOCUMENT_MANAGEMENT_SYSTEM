@@ -39,7 +39,15 @@ if (!fs.existsSync(uploadsDir)) {
 // Serve uploaded files statically
 app.use('/uploads', express.static(uploadsDir));
 
-app.get('/', (_req, res) => res.send('API is running'));
+const frontendDistCandidates = [
+  path.resolve(process.cwd(), 'dist'),
+  path.resolve(process.cwd(), 'frontend', 'dist'),
+  path.resolve(process.cwd(), '..', 'frontend', 'dist'),
+  path.resolve(__dirname, '..', '..', 'frontend', 'dist'),
+];
+const frontendDistDir = frontendDistCandidates.find((candidate) => fs.existsSync(candidate));
+
+app.get('/api', (_req, res) => res.send('API is running'));
 
 // Auto-migration: ensure schema is up to date
 async function runMigrations() {
@@ -393,8 +401,6 @@ import cleanupService from './services/cleanup.service';
 
 // Compatibility aliases for deployments that call root paths instead of /api/*.
 app.use('/auth', authRoutes);
-app.use('/folders', folderRoutes);
-app.use('/settings', settingsRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
@@ -443,6 +449,21 @@ app.get('/api/scan-health', async (_req, res) => {
     });
   }
 });
+
+if (frontendDistDir) {
+  app.use(express.static(frontendDistDir, { index: false }));
+
+  app.get('/{*spa}', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/auth')) {
+      next();
+      return;
+    }
+
+    res.sendFile(path.join(frontendDistDir, 'index.html'));
+  });
+} else {
+  app.get('/', (_req, res) => res.send('API is running'));
+}
 
 const PORT = process.env.PORT || 5000;
 
