@@ -229,6 +229,20 @@ function resolveBitDepth(color) {
   }
 }
 
+function resolveScanSource(scanSource) {
+  const normalized = String(scanSource || 'auto').trim().toLowerCase();
+
+  if (normalized === 'feeder' || normalized === 'adf' || normalized === 'document feeder') {
+    return 'feeder';
+  }
+
+  if (normalized === 'glass' || normalized === 'flatbed') {
+    return 'glass';
+  }
+
+  return null;
+}
+
 async function listScanners() {
   if (!isScannerCacheFresh()) {
     triggerScannerRefresh(scannerDiscoveryState.lastUpdated ? 'stale-read' : 'cold-start');
@@ -237,7 +251,34 @@ async function listScanners() {
   return getCachedScanners();
 }
 
-async function runNaps2Scan({ scanner, dpi, color, paperSize, outputPath }) {
+function buildScanFailureError(error, options) {
+  const stderr = String(error?.stderr || '').trim();
+  const stdout = String(error?.stdout || '').trim();
+  const message = String(error?.message || '').trim();
+  const combinedOutput = [stderr, stdout, message].filter(Boolean).join('\n');
+  const normalizedOutput = combinedOutput.toLowerCase();
+  const usingFeeder = resolveScanSource(options?.scanSource) === 'feeder';
+  const timeoutDetected = error?.killed || error?.signal === 'SIGTERM' || /timed?\s*out|timeout/i.test(combinedOutput);
+  const feederEmptyDetected = /feeder.*empty|adf.*empty|no paper|paper empty|document feeder|no pages? in feeder|load paper|paper jam|document is not loaded/i.test(normalizedOutput);
+
+  let friendlyMessage = combinedOutput || 'Scan failed.';
+
+  if (usingFeeder && feederEmptyDetected) {
+    friendlyMessage = 'ADF (feeder) is empty. Please insert paper into the feeder and try again.';
+  } else if (usingFeeder && timeoutDetected) {
+    friendlyMessage = 'Scanner timed out while waiting for paper in the ADF (feeder). Please insert paper and try again.';
+  }
+
+  const normalizedError = new Error(friendlyMessage);
+  normalizedError.code = error?.code;
+  normalizedError.stderr = stderr;
+  normalizedError.stdout = stdout;
+  normalizedError.originalMessage = message;
+
+  return normalizedError;
+}
+
+async function runNaps2Scan({ scanner, dpi, color, paperSize, outputPath, scanSource }) {
   if (!fs.existsSync(naps2Path)) {
     throw new Error(`NAPS2 executable not found at ${naps2Path}`);
   }
@@ -262,9 +303,18 @@ async function runNaps2Scan({ scanner, dpi, color, paperSize, outputPath }) {
     args.push('--pagesize', String(paperSize));
   }
 
+  const resolvedSource = resolveScanSource(scanSource);
+  if (resolvedSource) {
+    args.push('--source', resolvedSource);
+  }
+
   args.push('--force', '--pdfcompat', 'PDF_A_2B');
 
-  await execFileWithTimeout(naps2Path, args, 300000);
+  try {
+    await execFileWithTimeout(naps2Path, args, 300000);
+  } catch (error) {
+    throw buildScanFailureError(error, { scanSource });
+  }
 }
 
 async function uploadPdfToBackend({ filePath, title, folderId, authHeader }) {
@@ -336,7 +386,7 @@ app.post('/scan', async (req, res) => {
     return;
   }
 
-  const { title, folder_id, scanner, dpi, color, paperSize } = req.body || {};
+  const { title, folder_id, scanner, dpi, color, paperSize, scanSource } = req.body || {};
 
   if (!title || !folder_id) {
     return res.status(400).json({ error: 'title and folder_id are required' });
@@ -346,7 +396,7 @@ app.post('/scan', async (req, res) => {
   const outputPath = path.join(scansDirectory, `${sessionId}.pdf`);
 
   try {
-    await runNaps2Scan({ scanner, dpi, color, paperSize, outputPath });
+    await runNaps2Scan({ scanner, dpi, color, paperSize, outputPath, scanSource });
     const uploadResult = await uploadPdfToBackend({
       filePath: outputPath,
       title,
@@ -373,12 +423,12 @@ app.post('/scan-local', async (req, res) => {
     return;
   }
 
-  const { scanner, dpi, color, paperSize } = req.body || {};
+  const { scanner, dpi, color, paperSize, scanSource } = req.body || {};
   const sessionId = randomUUID();
   const outputPath = path.join(scansDirectory, `${sessionId}.pdf`);
 
   try {
-    await runNaps2Scan({ scanner, dpi, color, paperSize, outputPath });
+    await runNaps2Scan({ scanner, dpi, color, paperSize, outputPath, scanSource });
 
     previewSessions.set(sessionId, {
       filePath: outputPath,

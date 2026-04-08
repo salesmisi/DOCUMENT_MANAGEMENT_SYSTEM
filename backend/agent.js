@@ -190,6 +190,33 @@ function buildScanArgs({ outputPath, scanner, dpi, color, paperSize, format }) {
   return args;
 }
 
+function buildScanFailureError(error, options) {
+  const stderr = String(error?.stderr || '').trim();
+  const stdout = String(error?.stdout || '').trim();
+  const message = String(error?.message || '').trim();
+  const combinedOutput = [stderr, stdout, message].filter(Boolean).join('\n');
+  const normalizedOutput = combinedOutput.toLowerCase();
+  const usingFeeder = resolveScanSource(options?.scanSource) === 'feeder';
+  const timeoutDetected = error?.killed || error?.signal === 'SIGTERM' || /timed?\s*out|timeout/i.test(combinedOutput);
+  const feederEmptyDetected = /feeder.*empty|adf.*empty|no paper|paper empty|document feeder|no pages? in feeder|load paper|paper jam|document is not loaded/i.test(normalizedOutput);
+
+  let friendlyMessage = combinedOutput || 'Scan failed.';
+
+  if (usingFeeder && feederEmptyDetected) {
+    friendlyMessage = 'ADF (feeder) is empty. Please insert paper into the feeder and try again.';
+  } else if (usingFeeder && timeoutDetected) {
+    friendlyMessage = 'Scanner timed out while waiting for paper in the ADF (feeder). Please insert paper and try again.';
+  }
+
+  const normalizedError = new Error(friendlyMessage);
+  normalizedError.code = error?.code;
+  normalizedError.stderr = stderr;
+  normalizedError.stdout = stdout;
+  normalizedError.originalMessage = message;
+
+  return normalizedError;
+}
+
 function parseScannerList(stdout) {
   return stdout
     .split(/\r?\n/)
@@ -345,7 +372,11 @@ async function runScan(options) {
   const args = buildScanArgs(options);
   log('Running NAPS2 scan', { naps2Path, args });
 
-  await execFileWithTimeout(naps2Path, args, 300000);
+  try {
+    await execFileWithTimeout(naps2Path, args, 300000);
+  } catch (error) {
+    throw buildScanFailureError(error, options);
+  }
 
   if (!fs.existsSync(options.outputPath)) {
     throw new Error('NAPS2 finished but no output file was created.');
