@@ -17,11 +17,36 @@ const scansDirectory = process.env.LOCAL_AGENT_SCANS_DIR || path.join(__dirname,
 const naps2Path = process.env.NAPS2_PATH || 'C:\\Program Files\\NAPS2\\NAPS2.Console.exe';
 
 const previewSessions = new Map();
+const SCANNER_CACHE_TTL_MS = Number(process.env.SCANNER_CACHE_TTL_MS || 2 * 60 * 1000);
+const ACTIVE_DEVICE_TIMEOUT_MS = Number(process.env.SCANNER_ACTIVE_DEVICE_TIMEOUT_MS || 3500);
+const NAPS2_LIST_TIMEOUT_MS = Number(process.env.NAPS2_LIST_TIMEOUT_MS || 5000);
+const scannerDiscoveryState = {
+  scanners: [],
+  lastUpdated: 0,
+  refreshPromise: null,
+  lastError: null,
+};
 
 fs.mkdirSync(scansDirectory, { recursive: true });
 
 app.use(cors());
 app.use(express.json());
+
+function log(message, meta) {
+  if (meta) {
+    console.log('[local-agent] ' + message, meta);
+    return;
+  }
+
+  console.log('[local-agent] ' + message);
+}
+
+function logError(message, error, meta) {
+  console.error('[local-agent] ' + message, {
+    ...(meta || {}),
+    error: error?.message || error,
+  });
+}
 
 function requireAuthHeader(req, res) {
   const authHeader = req.headers.authorization;
@@ -46,6 +71,149 @@ function parseScannerList(stdout) {
     }));
 }
 
+function normalizeDeviceName(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isVirtualPrinter(name) {
+  return /microsoft (xps|print to pdf)|onenote|fax|adobe pdf|cutepdf/i.test(String(name || ''));
+}
+
+async function execFileWithTimeout(file, args, timeout) {
+  return execFileAsync(file, args, {
+    timeout,
+    windowsHide: true,
+    maxBuffer: 1024 * 1024,
+  });
+}
+
+function matchActiveDevice(scannerName, activeNames) {
+  const normalizedScannerName = normalizeDeviceName(scannerName);
+
+  return activeNames.some((activeName) => (
+    normalizedScannerName === activeName
+    || normalizedScannerName.includes(activeName)
+    || activeName.includes(normalizedScannerName)
+  ));
+}
+
+function getCachedScanners() {
+  return scannerDiscoveryState.scanners.map((scanner) => ({ ...scanner }));
+}
+
+function isScannerCacheFresh() {
+  if (!scannerDiscoveryState.lastUpdated) {
+    return false;
+  }
+
+  return (Date.now() - scannerDiscoveryState.lastUpdated) < SCANNER_CACHE_TTL_MS;
+}
+
+async function listActiveWindowsDevices() {
+  const command = [
+    '$devices = @();',
+    '$devices += Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |',
+    'Where-Object {',
+    "  $_.Name -and $_.Status -eq 'OK' -and (",
+    "    $_.PNPClass -in @('Image','Camera') -or $_.Service -eq 'stisvc' -or $_.Name -match 'scanner|scan|imaging|wia|adf|flatbed'",
+    '  )',
+    "} | Select-Object @{Name='Name';Expression={$_.Name}};",
+    '$devices += Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue |',
+    'Where-Object {',
+    "  $_.Name -and $_.WorkOffline -ne $true -and $_.PrinterStatus -notin 5,6,7 -and (",
+    "    $_.PortName -match 'USB|WSD|IP_|TCP|DOT4' -or $_.Local -eq $true -or $_.Network -eq $true",
+    '  )',
+    "} | Select-Object @{Name='Name';Expression={$_.Name}};",
+    '$devices | ConvertTo-Json -Compress',
+  ].join(' ');
+
+  try {
+    const { stdout } = await execFileWithTimeout(
+      'powershell',
+      ['-NoProfile', '-Command', command],
+      ACTIVE_DEVICE_TIMEOUT_MS,
+    );
+
+    if (!stdout.trim()) {
+      return [];
+    }
+
+    const parsed = JSON.parse(stdout);
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+
+    return items
+      .map((item) => item?.Name)
+      .filter((name) => name && !isVirtualPrinter(name))
+      .map((name) => normalizeDeviceName(name));
+  } catch (error) {
+    logError('Active Windows device detection failed', error);
+    return null;
+  }
+}
+
+async function listScannersFresh() {
+  if (!fs.existsSync(naps2Path)) {
+    return [];
+  }
+
+  const activeWindowsDevices = await listActiveWindowsDevices();
+  const commands = [
+    ['--listdevices', '--driver', 'wia'],
+    ['--listdevices'],
+  ];
+
+  for (const args of commands) {
+    try {
+      const { stdout } = await execFileWithTimeout(naps2Path, args, NAPS2_LIST_TIMEOUT_MS);
+      const scanners = parseScannerList(stdout);
+
+      if (!Array.isArray(activeWindowsDevices) || activeWindowsDevices.length === 0) {
+        return scanners;
+      }
+
+      return scanners.filter((scanner) => matchActiveDevice(scanner.name, activeWindowsDevices));
+    } catch (error) {
+      logError('Scanner listing command failed', error, { args });
+    }
+  }
+
+  return [];
+}
+
+function refreshScannerCache(reason) {
+  if (scannerDiscoveryState.refreshPromise) {
+    return scannerDiscoveryState.refreshPromise;
+  }
+
+  scannerDiscoveryState.refreshPromise = (async () => {
+    try {
+      const scanners = await listScannersFresh();
+      scannerDiscoveryState.scanners = scanners;
+      scannerDiscoveryState.lastUpdated = Date.now();
+      scannerDiscoveryState.lastError = null;
+      log('Scanner cache refreshed', { reason, count: scanners.length });
+      return scanners;
+    } catch (error) {
+      scannerDiscoveryState.lastError = error?.message || String(error);
+      logError('Scanner cache refresh failed', error, { reason });
+      return scannerDiscoveryState.scanners;
+    } finally {
+      scannerDiscoveryState.refreshPromise = null;
+    }
+  })();
+
+  return scannerDiscoveryState.refreshPromise;
+}
+
+function triggerScannerRefresh(reason) {
+  void refreshScannerCache(reason);
+}
+
 function resolveBitDepth(color) {
   switch ((color || 'color').toLowerCase()) {
     case 'bw':
@@ -62,12 +230,11 @@ function resolveBitDepth(color) {
 }
 
 async function listScanners() {
-  if (!fs.existsSync(naps2Path)) {
-    return [];
+  if (!isScannerCacheFresh()) {
+    triggerScannerRefresh(scannerDiscoveryState.lastUpdated ? 'stale-read' : 'cold-start');
   }
 
-  const { stdout } = await execFileAsync(naps2Path, ['--listdevices']);
-  return parseScannerList(stdout);
+  return getCachedScanners();
 }
 
 async function runNaps2Scan({ scanner, dpi, color, paperSize, outputPath }) {
@@ -97,7 +264,7 @@ async function runNaps2Scan({ scanner, dpi, color, paperSize, outputPath }) {
 
   args.push('--force', '--pdfcompat', 'PDF_A_2B');
 
-  await execFileAsync(naps2Path, args, { timeout: 300000 });
+  await execFileWithTimeout(naps2Path, args, 300000);
 }
 
 async function uploadPdfToBackend({ filePath, title, folderId, authHeader }) {
@@ -143,7 +310,13 @@ function sendForwardedError(error, res) {
 }
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, naps2Installed: fs.existsSync(naps2Path) });
+  res.json({
+    ok: true,
+    naps2Installed: fs.existsSync(naps2Path),
+    scannerCacheReady: scannerDiscoveryState.lastUpdated > 0,
+    scannerRefreshInProgress: Boolean(scannerDiscoveryState.refreshPromise),
+    cachedScannerCount: scannerDiscoveryState.scanners.length,
+  });
 });
 
 app.get('/scanners', async (_req, res) => {
@@ -151,6 +324,7 @@ app.get('/scanners', async (_req, res) => {
     const scanners = await listScanners();
     res.json(scanners);
   } catch (error) {
+    logError('Failed to serve /scanners', error);
     sendForwardedError(error, res);
   }
 });
@@ -283,6 +457,13 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+setInterval(() => {
+  if (!isScannerCacheFresh()) {
+    triggerScannerRefresh('scheduled-refresh');
+  }
+}, Math.max(10000, Math.floor(SCANNER_CACHE_TTL_MS / 2)));
+
 app.listen(port, () => {
-  console.log(`Local scanner agent listening on http://localhost:${port}`);
+  log(`Local scanner agent listening on http://localhost:${port}`);
+  triggerScannerRefresh('startup');
 });
