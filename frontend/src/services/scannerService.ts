@@ -7,6 +7,7 @@ const configuredAgentUrl = typeof import.meta !== 'undefined' && import.meta.env
   : 'http://localhost:3001';
 
 const SCANNER_AGENT_BASE_URL = trimTrailingSlash(configuredAgentUrl || 'http://localhost:3001');
+const AGENT_STATUS_PATHS = ['/health', '/status'];
 const TOKEN_STORAGE_KEYS = ['token', 'dms_token'];
 
 export interface ScannerAgentDevice {
@@ -74,6 +75,12 @@ export interface AgentStatusResponse {
   naps2: boolean;
   [key: string]: unknown;
 }
+
+const normalizeAgentStatus = (payload: Partial<AgentStatusResponse & ScannerAgentHealth>) => ({
+  ...payload,
+  running: Boolean(payload.running ?? payload.ok ?? payload.status === 'ok'),
+  naps2: Boolean(payload.naps2 ?? payload.naps2Installed),
+});
 
 // Support both the generic token key and the app's existing dms_token key.
 const getToken = () => TOKEN_STORAGE_KEYS
@@ -212,30 +219,30 @@ const requestJson = async <T>(path: string, init?: RequestInit) => {
 
 export async function detectAgent(): Promise<AgentStatusResponse | null> {
   try {
-    const response = await fetch(`${SCANNER_AGENT_BASE_URL}/status`, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-      },
-    });
+    for (const path of AGENT_STATUS_PATHS) {
+      const response = await fetch(`${SCANNER_AGENT_BASE_URL}${path}`, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
 
-    if (!response.ok) {
-      return null;
+      if (!response.ok) {
+        continue;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+
+      if (!contentType.includes('application/json')) {
+        continue;
+      }
+
+      const payload = await response.json() as Partial<AgentStatusResponse & ScannerAgentHealth>;
+
+      return normalizeAgentStatus(payload);
     }
 
-    const contentType = response.headers.get('content-type') || '';
-
-    if (!contentType.includes('application/json')) {
-      return null;
-    }
-
-    const payload = await response.json() as Partial<AgentStatusResponse>;
-
-    return {
-      ...payload,
-      running: Boolean(payload.running),
-      naps2: Boolean(payload.naps2),
-    };
+    return null;
   } catch {
     return null;
   }

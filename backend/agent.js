@@ -217,8 +217,8 @@ async function runScan(options) {
   return naps2Path;
 }
 
-app.get('/status', async (_req, res) => {
-  log('/status called');
+const handleStatusRequest = async (route, res) => {
+  log(`${route} called`);
 
   try {
     const naps2Path = await findNaps2Executable();
@@ -234,6 +234,14 @@ app.get('/status', async (_req, res) => {
       error: error.message || 'Failed to check NAPS2 status.',
     });
   }
+};
+
+app.get('/status', async (_req, res) => {
+  await handleStatusRequest('/status', res);
+});
+
+app.get('/health', async (_req, res) => {
+  await handleStatusRequest('/health', res);
 });
 
 app.get('/scanners', async (_req, res) => {
