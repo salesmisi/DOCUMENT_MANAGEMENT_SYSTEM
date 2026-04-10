@@ -458,6 +458,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
                       <div>
                         <div className="text-sm font-semibold text-[#20371f]">{printer.name}</div>
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#7f8a74]">
+                          <span className="uppercase tracking-[0.08em]">{printer.connection || 'local'}</span>
                           <span>{printer.driverName || 'printer'}</span>
                           {printer.portName && <span>{printer.portName}</span>}
                         </div>
