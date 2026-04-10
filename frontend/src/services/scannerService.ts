@@ -18,6 +18,18 @@ export interface ScannerAgentDevice {
   [key: string]: unknown;
 }
 
+export interface ScannerAgentPrinter {
+  id: string;
+  name: string;
+  type?: string;
+  driverName?: string;
+  portName?: string;
+  status?: string;
+  isDefault?: boolean;
+  connection?: string;
+  [key: string]: unknown;
+}
+
 export interface ScanDocumentPayload {
   title: string;
   folder_id: string | number;
@@ -159,6 +171,18 @@ const normalizeScannerDevice = (device: ScannerAgentDevice) => {
   };
 };
 
+const normalizePrinterDevice = (device: ScannerAgentPrinter) => ({
+  ...device,
+  id: String(device.id || device.name || ''),
+  name: String(device.name || device.id || '').trim(),
+  driverName: typeof device.driverName === 'string' ? device.driverName : undefined,
+  portName: typeof device.portName === 'string' ? device.portName : undefined,
+  status: typeof device.status === 'string' ? device.status : undefined,
+  type: typeof device.type === 'string' ? device.type : 'printer',
+  connection: typeof device.connection === 'string' ? device.connection : 'local',
+  isDefault: Boolean(device.isDefault),
+});
+
 export async function getAgentHealth() {
   const agent = await detectAgent();
 
@@ -271,6 +295,18 @@ export async function getScanners() {
   }
 
   return (data.scanners || []).map(normalizeScannerDevice).filter((device) => Boolean(device.id && device.name));
+}
+
+export async function getPrinters() {
+  const data = await requestJson<ScannerAgentPrinter[] | { printers?: ScannerAgentPrinter[] }>('/printers', {
+    headers: buildHeaders(),
+  });
+
+  if (Array.isArray(data)) {
+    return data.map(normalizePrinterDevice).filter((device) => Boolean(device.id && device.name));
+  }
+
+  return (data.printers || []).map(normalizePrinterDevice).filter((device) => Boolean(device.id && device.name));
 }
 
 export async function scanDocument(payload: ScanDocumentPayload) {
@@ -439,6 +475,7 @@ export const scannerService = {
   checkAgent,
   getAgentHealth,
   getScanners,
+  getPrinters,
   scanDocument,
   scanWithPreview,
   getPreview,

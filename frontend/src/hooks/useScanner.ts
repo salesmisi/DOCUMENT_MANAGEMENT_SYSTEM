@@ -3,6 +3,7 @@ import { PDFDocument } from 'pdf-lib';
 import {
   detectAgent,
   discardScan,
+  getPrinters,
   getPreview,
   getPreviewBlob,
   getScanners,
@@ -11,6 +12,7 @@ import {
   type PreviewResult,
   type ScanPreviewPayload,
   type ScannerAgentDevice,
+  type ScannerAgentPrinter,
 } from '../services/scannerService';
 
 export interface ScannerFlowValues {
@@ -40,6 +42,7 @@ interface ScannerUiCache {
   scannerAvailable: boolean;
   scannerStatusMessage: string;
   scanners: ScannerAgentDevice[];
+  printers: ScannerAgentPrinter[];
   selectedScanner: string;
   recentScans: RecentScanEntry[];
   lastSyncedAt: number;
@@ -108,6 +111,7 @@ const defaultScannerUiCache = (): ScannerUiCache => ({
   scannerAvailable: false,
   scannerStatusMessage: 'Agent Not Detected',
   scanners: [],
+  printers: [],
   selectedScanner: '',
   recentScans: [],
   lastSyncedAt: 0,
@@ -131,6 +135,7 @@ const readScannerUiCache = (): ScannerUiCache => {
       ...defaultScannerUiCache(),
       ...parsedCache,
       scanners: Array.isArray(parsedCache.scanners) ? parsedCache.scanners : [],
+      printers: Array.isArray(parsedCache.printers) ? parsedCache.printers : [],
       recentScans: Array.isArray(parsedCache.recentScans) ? parsedCache.recentScans : [],
       lastSyncedAt: typeof parsedCache.lastSyncedAt === 'number' ? parsedCache.lastSyncedAt : 0,
     };
@@ -146,6 +151,7 @@ const writeScannerUiCache = (cache: ScannerUiCache) => {
   scannerUiCacheState.scannerAvailable = cache.scannerAvailable;
   scannerUiCacheState.scannerStatusMessage = cache.scannerStatusMessage;
   scannerUiCacheState.scanners = cache.scanners;
+  scannerUiCacheState.printers = cache.printers;
   scannerUiCacheState.selectedScanner = cache.selectedScanner;
   scannerUiCacheState.recentScans = cache.recentScans;
   scannerUiCacheState.lastSyncedAt = cache.lastSyncedAt;
@@ -184,6 +190,7 @@ export function useScanner() {
   const [scannerAvailable, setScannerAvailable] = useState(scannerUiCacheState.scannerAvailable);
   const [scannerStatusMessage, setScannerStatusMessage] = useState(scannerUiCacheState.scannerStatusMessage);
   const [scanners, setScanners] = useState<ScannerAgentDevice[]>(scannerUiCacheState.scanners);
+  const [printers, setPrinters] = useState<ScannerAgentPrinter[]>(scannerUiCacheState.printers);
   const [selectedScanner, setSelectedScannerState] = useState(scannerUiCacheState.selectedScanner);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -258,6 +265,7 @@ export function useScanner() {
       setScannerAvailable(scannerUiCacheState.scannerAvailable);
       setScannerStatusMessage(scannerUiCacheState.scannerStatusMessage);
       setScanners(scannerUiCacheState.scanners);
+      setPrinters(scannerUiCacheState.printers);
       setSelectedScannerState((current) => current || scannerUiCacheState.selectedScanner || scannerUiCacheState.scanners[0]?.id || '');
       setRecentScans((current) => current.length > 0 ? current : scannerUiCacheState.recentScans);
       return scannerUiCacheState.scannerAvailable;
@@ -286,6 +294,7 @@ export function useScanner() {
 
       if (!readyForScanning) {
         setScanners([]);
+        setPrinters([]);
         setSelectedScannerState('');
         writeScannerUiCache({
           ...scannerUiCacheState,
@@ -293,6 +302,7 @@ export function useScanner() {
           scannerAvailable: false,
           scannerStatusMessage: connected ? 'Agent detected, but NAPS2 is not ready.' : 'Agent Not Detected',
           scanners: [],
+          printers: [],
           selectedScanner: '',
           lastSyncedAt: Date.now(),
         });
@@ -304,7 +314,9 @@ export function useScanner() {
       }
 
       const availableScanners = await getScanners();
+      const availablePrinters = await getPrinters();
       setScanners(availableScanners);
+      setPrinters(availablePrinters);
       setSelectedScannerState((current) => {
         if (current && availableScanners.some((scanner) => scanner.id === current)) {
           return current;
@@ -325,6 +337,7 @@ export function useScanner() {
         scannerAvailable: readyForScanning,
         scannerStatusMessage: 'Agent Connected',
         scanners: availableScanners,
+        printers: availablePrinters,
         selectedScanner: nextSelectedScanner,
         recentScans: scannerUiCacheState.recentScans,
         lastSyncedAt: Date.now(),
@@ -336,6 +349,7 @@ export function useScanner() {
       setScannerAvailable(false);
       setScannerStatusMessage('Agent Not Detected');
       setScanners([]);
+      setPrinters([]);
       setSelectedScannerState('');
       writeScannerUiCache({
         ...scannerUiCacheState,
@@ -343,6 +357,7 @@ export function useScanner() {
         scannerAvailable: false,
         scannerStatusMessage: 'Agent Not Detected',
         scanners: [],
+        printers: [],
         selectedScanner: '',
         lastSyncedAt: Date.now(),
       });
@@ -364,11 +379,12 @@ export function useScanner() {
       scannerAvailable,
       scannerStatusMessage,
       scanners,
+      printers,
       selectedScanner,
       recentScans,
       lastSyncedAt: scannerUiCacheState.lastSyncedAt,
     });
-  }, [agentOnline, recentScans, scannerAvailable, scannerStatusMessage, scanners, selectedScanner]);
+  }, [agentOnline, printers, recentScans, scannerAvailable, scannerStatusMessage, scanners, selectedScanner]);
 
   useEffect(() => {
     loadingRef.current = loading;
@@ -660,6 +676,7 @@ export function useScanner() {
     scannerAvailable,
     scannerStatusMessage,
     scanners,
+    printers,
     selectedScanner,
     setSelectedScanner,
     loading,
