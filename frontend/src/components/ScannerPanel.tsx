@@ -375,7 +375,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
               </span>
               <div>
                 <h3 className="text-lg font-semibold text-[#20371f]">Connected Devices</h3>
-                <p className="text-sm text-[#7b8677]">Choose the scanner you want to use for this scan and review the locally detected printer.</p>
+                <p className="text-sm text-[#7b8677]">Choose the scanner you want to use for this scan.</p>
               </div>
             </div>
 
@@ -474,47 +474,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
             </div>
           )}
 
-          <div className="mt-6 border-t border-[#efead1] pt-5">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl bg-[#eef6ea] text-[#2f6b3f]">
-                <Upload size={14} />
-              </span>
-              <div>
-                <h4 className="text-sm font-semibold text-[#20371f]">Detected Printer</h4>
-                <p className="text-xs text-[#7b8677]">Local printer information from the scanner agent.</p>
-              </div>
-            </div>
 
-            {printers.length === 0 ? (
-              <div className="mt-4 rounded-2xl border border-[#e3dcc2] bg-[#fcfbf5] px-4 py-3 text-sm text-[#7b8677]">
-                No printer detected.
-              </div>
-            ) : (
-              <div className="mt-4 space-y-3">
-                {printers.map((printer) => (
-                  <div key={printer.id} className="rounded-2xl border border-[#e3dcc2] bg-[#fcfbf5] px-4 py-3 text-left">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-[#20371f]">{printer.name}</div>
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#7f8a74]">
-                          <span className="uppercase tracking-[0.08em]">{printer.connection || 'local'}</span>
-                          <span>{printer.driverName || 'printer'}</span>
-                          {printer.portName && <span>{printer.portName}</span>}
-                        </div>
-                      </div>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700">
-                        <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                        {printer.status || 'ready'}
-                      </span>
-                    </div>
-                    {printer.isDefault && (
-                      <div className="mt-2 text-xs font-medium text-[#2f6b3f]">Default printer</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
 
         <div className="rounded-3xl border border-[#e6e0c6] bg-white p-6 shadow-sm">
