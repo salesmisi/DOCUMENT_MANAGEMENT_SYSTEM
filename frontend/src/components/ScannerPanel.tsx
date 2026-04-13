@@ -38,6 +38,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
     selectedScanner,
     setSelectedScanner,
     loading,
+    isDetectingDevices,
     error,
     successMessage,
     previewUrl,
@@ -374,10 +375,10 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
             <button
               type="button"
               onClick={() => void handleDetectScanners()}
-              disabled={loading}
+              disabled={isDetectingDevices}
               className="inline-flex items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-[#2f6b3f] transition hover:bg-[#f3f7ef] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? <Loader2 className="animate-spin" size={16} /> : <RotateCw size={16} />}
+              {isDetectingDevices ? <Loader2 className="animate-spin" size={16} /> : <RotateCw size={16} />}
               Detect
             </button>
           </div>

@@ -7,6 +7,7 @@ import {
   getPreview,
   getPreviewBlob,
   getScanners,
+  refreshScannerDevices,
   scanWithPreview,
   uploadScannedFile,
   type PreviewResult,
@@ -193,6 +194,7 @@ export function useScanner() {
   const [printers, setPrinters] = useState<ScannerAgentPrinter[]>(scannerUiCacheState.printers);
   const [selectedScanner, setSelectedScannerState] = useState(scannerUiCacheState.selectedScanner);
   const [loading, setLoading] = useState(false);
+  const [isDetectingDevices, setIsDetectingDevices] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [previewSessionId, setPreviewSessionId] = useState<string | null>(null);
@@ -273,6 +275,7 @@ export function useScanner() {
 
     if (!silent) {
       setLoading(true);
+      setIsDetectingDevices(true);
       setError(null);
       setSuccessMessage(null);
     }
@@ -311,6 +314,10 @@ export function useScanner() {
 
       if (!forceRefresh && scannersRef.current.length > 0) {
         return true;
+      }
+
+      if (forceRefresh) {
+        await refreshScannerDevices();
       }
 
       const availableScanners = await getScanners();
@@ -365,6 +372,7 @@ export function useScanner() {
     } finally {
       if (!silent) {
         setLoading(false);
+        setIsDetectingDevices(false);
       }
     }
   }, []);
@@ -680,6 +688,7 @@ export function useScanner() {
     selectedScanner,
     setSelectedScanner,
     loading,
+    isDetectingDevices,
     error,
     successMessage,
     previewSessionId,

@@ -88,6 +88,12 @@ export interface AgentStatusResponse {
   [key: string]: unknown;
 }
 
+interface AgentDeviceStatusResponse {
+  ready?: boolean;
+  isRefreshing?: boolean;
+  [key: string]: unknown;
+}
+
 const normalizeAgentStatus = (payload: Partial<AgentStatusResponse & ScannerAgentHealth>) => ({
   ...payload,
   running: Boolean(payload.running ?? payload.ok ?? payload.status === 'ok'),
@@ -309,6 +315,39 @@ export async function getPrinters() {
   return (data.printers || []).map(normalizePrinterDevice).filter((device) => Boolean(device.id && device.name));
 }
 
+const wait = (ms: number) => new Promise((resolve) => {
+  window.setTimeout(resolve, ms);
+});
+
+export async function refreshScannerDevices() {
+  try {
+    await requestJson('/refresh-scanners', {
+      method: 'POST',
+      headers: buildHeaders(),
+    });
+  } catch {
+    // Older agent builds may not expose this endpoint.
+    return;
+  }
+
+  // Wait briefly for background refresh completion if the endpoint exists.
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      const status = await requestJson<AgentDeviceStatusResponse>('/device-status', {
+        headers: buildHeaders(),
+      });
+
+      if (!status?.isRefreshing && status?.ready) {
+        return;
+      }
+    } catch {
+      return;
+    }
+
+    await wait(600);
+  }
+}
+
 export async function scanDocument(payload: ScanDocumentPayload) {
   // The token is forwarded to the local agent so it can upload to the cloud backend per request.
   const token = getRequiredToken();
@@ -476,6 +515,7 @@ export const scannerService = {
   getAgentHealth,
   getScanners,
   getPrinters,
+  refreshScannerDevices,
   scanDocument,
   scanWithPreview,
   getPreview,
