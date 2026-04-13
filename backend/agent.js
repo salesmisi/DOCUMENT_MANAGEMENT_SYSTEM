@@ -170,7 +170,7 @@ function buildScanArgs({ outputPath, scanner, dpi, color, paperSize, format }) {
   }
 
   if (scanner) {
-    args.push('--driver', 'wia', '--device', String(scanner));
+    args.push('--driver', String(arguments[0].driver || 'wia'), '--device', String(scanner));
   } else {
     args.push('--interactivescan');
   }
@@ -301,26 +301,43 @@ async function listScannersFresh() {
 
   const activeWindowsDevices = await listActiveWindowsDevices();
   const commands = [
-    ['--listdevices', '--driver', 'wia'],
-    ['--listdevices'],
+    { args: ['--listdevices', '--driver', 'wia'], driver: 'wia', filterActiveDevices: true },
+    { args: ['--listdevices', '--driver', 'twain'], driver: 'twain', filterActiveDevices: true },
+    { args: ['--listdevices', '--driver', 'escl'], driver: 'escl', filterActiveDevices: false },
   ];
+  const discoveredScanners = [];
+  const seenNames = new Set();
 
-  for (const args of commands) {
+  for (const { args, driver, filterActiveDevices } of commands) {
     try {
-      const { stdout } = await execFileWithTimeout(naps2Path, args, NAPS2_LIST_TIMEOUT_MS);
-      const scanners = parseScannerList(stdout);
+      const listTimeoutMs = driver === 'escl'
+        ? Math.max(NAPS2_LIST_TIMEOUT_MS, 45000)
+        : NAPS2_LIST_TIMEOUT_MS;
+      const { stdout } = await execFileWithTimeout(naps2Path, args, listTimeoutMs);
+      const scanners = parseScannerList(stdout).map((scanner) => ({
+        ...scanner,
+        driver,
+        connection: driver === 'escl' ? 'network' : 'usb',
+      }));
+      const visibleScanners = filterActiveDevices && Array.isArray(activeWindowsDevices) && activeWindowsDevices.length > 0
+        ? scanners.filter((scanner) => matchActiveDevice(scanner.name, activeWindowsDevices))
+        : scanners;
 
-      if (!Array.isArray(activeWindowsDevices) || activeWindowsDevices.length === 0) {
-        return scanners;
+      for (const scanner of visibleScanners) {
+        const scannerKey = scanner.name.toLowerCase();
+        if (seenNames.has(scannerKey)) {
+          continue;
+        }
+
+        seenNames.add(scannerKey);
+        discoveredScanners.push(scanner);
       }
-
-      return scanners.filter((scanner) => matchActiveDevice(scanner.name, activeWindowsDevices));
     } catch (error) {
-      logError('Scanner listing command failed', error, { args });
+      logError('Scanner listing command failed', error, { args, driver });
     }
   }
 
-  return [];
+  return discoveredScanners;
 }
 
 function refreshScannerCache(reason) {

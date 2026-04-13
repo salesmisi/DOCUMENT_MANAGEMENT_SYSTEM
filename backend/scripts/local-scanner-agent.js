@@ -163,26 +163,43 @@ async function listScannersFresh() {
 
   const activeWindowsDevices = await listActiveWindowsDevices();
   const commands = [
-    ['--listdevices', '--driver', 'wia'],
-    ['--listdevices'],
+    { args: ['--listdevices', '--driver', 'wia'], driver: 'wia', filterActiveDevices: true },
+    { args: ['--listdevices', '--driver', 'twain'], driver: 'twain', filterActiveDevices: true },
+    { args: ['--listdevices', '--driver', 'escl'], driver: 'escl', filterActiveDevices: false },
   ];
+  const discoveredScanners = [];
+  const seenNames = new Set();
 
-  for (const args of commands) {
+  for (const { args, driver, filterActiveDevices } of commands) {
     try {
-      const { stdout } = await execFileWithTimeout(naps2Path, args, NAPS2_LIST_TIMEOUT_MS);
-      const scanners = parseScannerList(stdout);
+      const listTimeoutMs = driver === 'escl'
+        ? Math.max(NAPS2_LIST_TIMEOUT_MS, 45000)
+        : NAPS2_LIST_TIMEOUT_MS;
+      const { stdout } = await execFileWithTimeout(naps2Path, args, listTimeoutMs);
+      const scanners = parseScannerList(stdout).map((scanner) => ({
+        ...scanner,
+        driver,
+        connection: driver === 'escl' ? 'network' : 'usb',
+      }));
+      const visibleScanners = filterActiveDevices && Array.isArray(activeWindowsDevices) && activeWindowsDevices.length > 0
+        ? scanners.filter((scanner) => matchActiveDevice(scanner.name, activeWindowsDevices))
+        : scanners;
 
-      if (!Array.isArray(activeWindowsDevices) || activeWindowsDevices.length === 0) {
-        return scanners;
+      for (const scanner of visibleScanners) {
+        const scannerKey = scanner.name.toLowerCase();
+        if (seenNames.has(scannerKey)) {
+          continue;
+        }
+
+        seenNames.add(scannerKey);
+        discoveredScanners.push(scanner);
       }
-
-      return scanners.filter((scanner) => matchActiveDevice(scanner.name, activeWindowsDevices));
     } catch (error) {
-      logError('Scanner listing command failed', error, { args });
+      logError('Scanner listing command failed', error, { args, driver });
     }
   }
 
-  return [];
+  return discoveredScanners;
 }
 
 function refreshScannerCache(reason) {
@@ -278,7 +295,7 @@ function buildScanFailureError(error, options) {
   return normalizedError;
 }
 
-async function runNaps2Scan({ scanner, dpi, color, paperSize, outputPath, scanSource }) {
+async function runNaps2Scan({ scanner, driver, dpi, color, paperSize, outputPath, scanSource }) {
   if (!fs.existsSync(naps2Path)) {
     throw new Error(`NAPS2 executable not found at ${naps2Path}`);
   }
@@ -286,7 +303,7 @@ async function runNaps2Scan({ scanner, dpi, color, paperSize, outputPath, scanSo
   const args = ['-o', outputPath, '--verbose'];
 
   if (scanner) {
-    args.push('--device', scanner, '--driver', 'wia');
+    args.push('--device', scanner, '--driver', String(driver || 'wia'));
   } else {
     args.push('--interactivescan');
   }
@@ -386,7 +403,7 @@ app.post('/scan', async (req, res) => {
     return;
   }
 
-  const { title, folder_id, scanner, dpi, color, paperSize, scanSource } = req.body || {};
+  const { title, folder_id, scanner, driver, dpi, color, paperSize, scanSource } = req.body || {};
 
   if (!title || !folder_id) {
     return res.status(400).json({ error: 'title and folder_id are required' });
@@ -396,7 +413,7 @@ app.post('/scan', async (req, res) => {
   const outputPath = path.join(scansDirectory, `${sessionId}.pdf`);
 
   try {
-    await runNaps2Scan({ scanner, dpi, color, paperSize, outputPath, scanSource });
+    await runNaps2Scan({ scanner, driver, dpi, color, paperSize, outputPath, scanSource });
     const uploadResult = await uploadPdfToBackend({
       filePath: outputPath,
       title,
@@ -423,12 +440,12 @@ app.post('/scan-local', async (req, res) => {
     return;
   }
 
-  const { scanner, dpi, color, paperSize, scanSource } = req.body || {};
+  const { scanner, driver, dpi, color, paperSize, scanSource } = req.body || {};
   const sessionId = randomUUID();
   const outputPath = path.join(scansDirectory, `${sessionId}.pdf`);
 
   try {
-    await runNaps2Scan({ scanner, dpi, color, paperSize, outputPath, scanSource });
+    await runNaps2Scan({ scanner, driver, dpi, color, paperSize, outputPath, scanSource });
 
     previewSessions.set(sessionId, {
       filePath: outputPath,
