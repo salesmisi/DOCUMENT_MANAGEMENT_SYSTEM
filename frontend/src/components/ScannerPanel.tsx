@@ -16,6 +16,13 @@ const DOCUMENT_TYPE_CODES = [
   { code: 'DR', label: 'Delivery Receipt' },
 ];
 
+const normalizeDeviceBaseName = (value?: string | null) => String(value || '')
+  .toLowerCase()
+  .replace(/\(\d{1,3}(?:\.\d{1,3}){3}\)/g, '')
+  .replace(/\(network\)/g, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
 interface FolderOption {
   id: string;
   name: string;
@@ -34,6 +41,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
     scannerAvailable,
     scannerStatusMessage,
     scanners,
+    printers,
     selectedScanner,
     setSelectedScanner,
     loading,
@@ -126,6 +134,21 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
 
   const targetFolderId = subfolderId;
   const hasRequiredScanFields = Boolean(title.trim() && departmentFolderId && subfolderId);
+
+  const networkPrinterCandidates = useMemo(() => {
+    const scannerNames = new Set(scanners.map((scanner) => normalizeDeviceBaseName(scanner.name)));
+
+    return printers.filter((printer) => {
+      const normalizedConnection = String(printer.connection || '').trim().toLowerCase();
+
+      if (normalizedConnection !== 'network') {
+        return false;
+      }
+
+      const baseName = normalizeDeviceBaseName(printer.name || printer.driverName);
+      return Boolean(baseName) && !scannerNames.has(baseName);
+    });
+  }, [printers, scanners]);
 
   useEffect(() => {
     if (!departmentFolderId && departmentFolders.length > 0) {
@@ -444,6 +467,33 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
                   </button>
                 );
               })}
+            </div>
+          )}
+
+          {networkPrinterCandidates.length > 0 && (
+            <div className="mt-5 rounded-2xl border border-[#efd8b2] bg-[#fff8ec] p-4">
+              <div className="text-sm font-semibold text-[#915f00]">Network printer candidates</div>
+              <p className="mt-1 text-xs text-[#8b6b31]">
+                Detected on network, but scanner driver/protocol is not available yet.
+              </p>
+
+              <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                {networkPrinterCandidates.map((printer) => (
+                  <div
+                    key={printer.id}
+                    className="rounded-xl border border-[#ecd4ab] bg-[#fff4e1] px-3 py-2"
+                  >
+                    <div className="text-sm font-semibold text-[#6f4a00]">{printer.name}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] uppercase tracking-[0.08em] text-[#7f8a74]">network printer</span>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#ffe7bf] px-2 py-0.5 text-[11px] font-semibold text-[#a95d00]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#f59e0b]" />
+                        Printer Only
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
