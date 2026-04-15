@@ -16,13 +16,6 @@ const DOCUMENT_TYPE_CODES = [
   { code: 'DR', label: 'Delivery Receipt' },
 ];
 
-const normalizeDeviceBaseName = (value?: string | null) => String(value || '')
-  .toLowerCase()
-  .replace(/\(\d{1,3}(?:\.\d{1,3}){3}\)/g, '')
-  .replace(/\(network\)/g, '')
-  .replace(/\s+/g, ' ')
-  .trim();
-
 interface FolderOption {
   id: string;
   name: string;
@@ -41,7 +34,6 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
     scannerAvailable,
     scannerStatusMessage,
     scanners,
-    printers,
     selectedScanner,
     setSelectedScanner,
     loading,
@@ -404,18 +396,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
             <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
               {scanners.map((scanner) => {
                 const isSelected = selectedScanner === scanner.id || (!selectedScanner && scanners[0]?.id === scanner.id);
-                const normalizedConnection = String(scanner.connection || '').trim().toLowerCase();
                 const explicitStatus = typeof scanner.status === 'string' ? scanner.status.trim().toLowerCase() : '';
-                const baseName = normalizeDeviceBaseName(scanner.name);
-                const hasMatchingNetworkScanner = scanners.some((otherScanner) => (
-                  otherScanner.id !== scanner.id
-                  && String(otherScanner.connection || '').trim().toLowerCase() === 'network'
-                  && normalizeDeviceBaseName(otherScanner.name) === baseName
-                ));
-                const hasUsbPrinterEvidence = printers.some((printer) => (
-                  normalizeDeviceBaseName(printer.name || printer.driverName) === baseName
-                  && /usb|dot4/i.test(String(printer.portName || ''))
-                ));
 
                 const isReady = (() => {
                   if (!scannerAvailable || !agentOnline) {
@@ -426,15 +407,7 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
                     return ['ready', 'idle', 'ok', 'available'].includes(explicitStatus);
                   }
 
-                  if (normalizedConnection === 'network') {
-                    return true;
-                  }
-
-                  if (normalizedConnection === 'usb' && hasMatchingNetworkScanner && !hasUsbPrinterEvidence) {
-                    return false;
-                  }
-
-                  return true;
+                  return false;
                 })();
 
                 return (

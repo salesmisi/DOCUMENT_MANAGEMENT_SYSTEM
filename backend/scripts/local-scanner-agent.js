@@ -181,9 +181,29 @@ async function listScannersFresh() {
         driver,
         connection: driver === 'escl' ? 'network' : 'usb',
       }));
-      const visibleScanners = filterActiveDevices && Array.isArray(activeWindowsDevices) && activeWindowsDevices.length > 0
-        ? scanners.filter((scanner) => matchActiveDevice(scanner.name, activeWindowsDevices))
-        : scanners;
+      const visibleScanners = (() => {
+        if (!filterActiveDevices) {
+          return scanners.map((scanner) => ({
+            ...scanner,
+            status: 'ready',
+          }));
+        }
+
+        if (Array.isArray(activeWindowsDevices)) {
+          return scanners
+            .filter((scanner) => matchActiveDevice(scanner.name, activeWindowsDevices))
+            .map((scanner) => ({
+              ...scanner,
+              status: 'ready',
+            }));
+        }
+
+        // If active device discovery fails, keep scanners but mark status unknown.
+        return scanners.map((scanner) => ({
+          ...scanner,
+          status: 'unknown',
+        }));
+      })();
 
       for (const scanner of visibleScanners) {
         const scannerKey = scanner.name.toLowerCase();
@@ -394,6 +414,30 @@ app.get('/scanners', async (_req, res) => {
     logError('Failed to serve /scanners', error);
     sendForwardedError(error, res);
   }
+});
+
+app.post('/refresh-scanners', async (_req, res) => {
+  try {
+    const refreshPromise = refreshScannerCache('manual-refresh');
+    res.json({
+      ok: true,
+      isRefreshing: Boolean(refreshPromise),
+      ready: false,
+    });
+  } catch (error) {
+    logError('Failed to trigger scanner refresh', error);
+    sendForwardedError(error, res);
+  }
+});
+
+app.get('/device-status', (_req, res) => {
+  res.json({
+    ready: isScannerCacheFresh(),
+    isRefreshing: Boolean(scannerDiscoveryState.refreshPromise),
+    count: scannerDiscoveryState.scanners.length,
+    lastUpdated: scannerDiscoveryState.lastUpdated,
+    error: scannerDiscoveryState.lastError,
+  });
 });
 
 app.post('/scan', async (req, res) => {
