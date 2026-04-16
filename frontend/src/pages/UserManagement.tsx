@@ -331,6 +331,16 @@ export function UserManagement() {
   };
 
   const handleDeleteUser = async (id: string, name: string) => {
+    const targetUser = users.find((u) => u.id === id);
+    const isSystemAdministrator =
+      targetUser?.email?.toLowerCase() === 'admin@system.com' ||
+      targetUser?.name?.toLowerCase() === 'system administrator';
+
+    if (isSystemAdministrator) {
+      alert('System Administrator account cannot be deleted.');
+      return;
+    }
+
     setDeleteConfirm({ id, name });
   };
   const confirmDeleteUser = async () => {
@@ -510,7 +520,7 @@ export function UserManagement() {
                         >
                           <Shield size={15} />
                         </button>
-                        {u.id !== 'user-1' &&
+                        {u.email?.toLowerCase() !== 'admin@system.com' &&
                     <button
                       onClick={() => handleDeleteUser(u.id, u.name)}
                       className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
