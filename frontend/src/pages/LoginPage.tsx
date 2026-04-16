@@ -4,21 +4,30 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useNavigation } from '../App';
 import { useLogo, LOGO_SIZES } from '../context/LogoContext';
+import { apiUrl } from '../utils/api';
 
 export function LoginPage() {
   const { login } = useAuth();
   const { t } = useLanguage();
   const { navigate } = useNavigation();
   const { logo, logoSize } = useLogo();
+  const [mode, setMode] = useState<'login' | 'forgot'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+  const [showForgotNewPassword, setShowForgotNewPassword] = useState(false);
+  const [showForgotConfirmPassword, setShowForgotConfirmPassword] = useState(false);
+  const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
 
     if (!email || !password) {
       setError(t('loginValidation'));
@@ -34,6 +43,47 @@ export function LoginPage() {
     }
 
     setLoading(false);
+  };
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    if (!forgotEmail || !forgotNewPassword || !forgotConfirmPassword) {
+      setError('Please complete all fields.');
+      return;
+    }
+
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(apiUrl('/auth/forgot-password'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail, newPassword: forgotNewPassword }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data?.error || 'Failed to reset password.');
+        return;
+      }
+
+      setSuccess(data?.message || 'Password updated. You can now sign in.');
+      setMode('login');
+      setEmail(forgotEmail);
+      setForgotNewPassword('');
+      setForgotConfirmPassword('');
+    } catch {
+      setError('Failed to reset password.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -83,7 +133,7 @@ export function LoginPage() {
           <div className="bg-white/90 rounded-2xl shadow-2xl p-8 border border-[#C0B87A]/30">
 
             <h2 className="text-xl font-semibold text-gray-800 mb-6 text-center">
-              {t('signIn')}
+              {mode === 'login' ? t('signIn') : 'Forgot Password'}
             </h2>
 
             {error && (
@@ -92,68 +142,179 @@ export function LoginPage() {
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-
-              {/* EMAIL */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  {t('emailAddress')}
-                </label>
-                <div className="relative">
-                  <Mail
-                    size={16}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                  />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder={t('emailPlaceholder')}
-                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] focus:border-transparent"
-                  />
-                </div>
+            {success && (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+                {success}
               </div>
+            )}
 
-              {/* PASSWORD */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  {t('password')}
-                </label>
-                <div className="relative">
-                  <Lock
-                    size={16}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                  />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder={t('enterPassword')}
-                    className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] focus:border-transparent"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
+            {mode === 'login' ? (
+              <form onSubmit={handleSubmit} className="space-y-4">
+
+                {/* EMAIL */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    {t('emailAddress')}
+                  </label>
+                  <div className="relative">
+                    <Mail
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder={t('emailPlaceholder')}
+                      className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] focus:border-transparent"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              {/* SUBMIT */}
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3 rounded-lg text-white font-semibold text-sm transition-all duration-200 disabled:opacity-60"
-                style={{
-                  backgroundColor: loading ? '#427A43' : '#005F02'
-                }}
-              >
-                {loading ? t('signingIn') : t('signIn')}
-              </button>
+                {/* PASSWORD */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    {t('password')}
+                  </label>
+                  <div className="relative">
+                    <Lock
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder={t('enterPassword')}
+                      className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] focus:border-transparent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
 
-            </form>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('forgot');
+                    setError('');
+                    setSuccess('');
+                    setForgotEmail(email);
+                  }}
+                  className="w-full text-right text-sm text-[#005F02] hover:underline"
+                >
+                  Forgot Password?
+                </button>
+
+                {/* SUBMIT */}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-3 rounded-lg text-white font-semibold text-sm transition-all duration-200 disabled:opacity-60"
+                  style={{
+                    backgroundColor: loading ? '#427A43' : '#005F02'
+                  }}
+                >
+                  {loading ? t('signingIn') : t('signIn')}
+                </button>
+
+              </form>
+            ) : (
+              <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Email Address</label>
+                  <div className="relative">
+                    <Mail
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type="email"
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                      placeholder={t('emailPlaceholder')}
+                      className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] focus:border-transparent"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">New Password</label>
+                  <div className="relative">
+                    <Lock
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type={showForgotNewPassword ? 'text' : 'password'}
+                      value={forgotNewPassword}
+                      onChange={(e) => setForgotNewPassword(e.target.value)}
+                      placeholder="Enter new password"
+                      className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] focus:border-transparent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotNewPassword(!showForgotNewPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showForgotNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Confirm New Password</label>
+                  <div className="relative">
+                    <Lock
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type={showForgotConfirmPassword ? 'text' : 'password'}
+                      value={forgotConfirmPassword}
+                      onChange={(e) => setForgotConfirmPassword(e.target.value)}
+                      placeholder="Enter new password again"
+                      className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] focus:border-transparent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotConfirmPassword(!showForgotConfirmPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showForgotConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-3 rounded-lg text-white font-semibold text-sm transition-all duration-200 disabled:opacity-60"
+                  style={{
+                    backgroundColor: loading ? '#427A43' : '#005F02'
+                  }}
+                >
+                  {loading ? 'Processing...' : 'Reset Password'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('login');
+                    setError('');
+                    setSuccess('');
+                  }}
+                  className="w-full py-2 rounded-lg border border-gray-300 text-gray-700 text-sm hover:bg-gray-50"
+                >
+                  Back to Sign In
+                </button>
+              </form>
+            )}
           </div>
 
           <p className="text-center text-xs text-white/60 mt-6">

@@ -288,7 +288,7 @@ export const deleteUser = async (req: Request, res: Response) => {
 };
 
 // ── RESET PASSWORD ───────────────────────────────────────
-export const resetPassword = async (req: Request, res: Response) => {
+export const resetPassword = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { newPassword } = req.body;
@@ -302,17 +302,110 @@ export const resetPassword = async (req: Request, res: Response) => {
       return res.status(400).json({ error: passwordValidation.errors[0] });
     }
 
+    if (!req.userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const actorResult = await pool.query(
+      'SELECT id, name, role FROM users WHERE id = $1 AND status = $2',
+      [req.userId, 'active']
+    );
+
+    if (actorResult.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid user session' });
+    }
+
+    const actor = actorResult.rows[0];
+    if (!['admin', 'manager'].includes(actor.role)) {
+      return res.status(403).json({ error: 'Only admin or manager can reset passwords' });
+    }
+
     const hashed = await bcrypt.hash(newPassword, 10);
     const result = await pool.query(
-      'UPDATE users SET password = $1 WHERE id = $2 RETURNING id',
+      'UPDATE users SET password = $1 WHERE id = $2 RETURNING id, name, email',
       [hashed, id]
     );
     if (result.rows.length === 0)
       return res.status(404).json({ error: 'User not found' });
 
+    const targetUser = result.rows[0];
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const ipAddress = Array.isArray(forwardedFor)
+      ? forwardedFor[0]
+      : (forwardedFor?.split(',')[0]?.trim() || req.ip || null);
+
+    await pool.query(
+      `INSERT INTO activity_logs
+        (user_id, user_name, user_role, action, target, target_type, ip_address, details, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+      [
+        actor.id,
+        actor.name,
+        actor.role,
+        'USER_PASSWORD_RESET',
+        targetUser.name || targetUser.email,
+        'user',
+        ipAddress,
+        `${actor.name} (${actor.role}) reset password for ${targetUser.name || targetUser.email}`,
+      ]
+    );
+
     return res.json({ message: 'Password updated' });
   } catch (err) {
     console.error('resetPassword error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ── FORGOT PASSWORD (self-service from login screen) ─────
+export const forgotPassword = async (req: Request, res: Response) => {
+  try {
+    const { email, newPassword } = req.body;
+
+    if (!email || !newPassword) {
+      return res.status(400).json({ error: 'email and newPassword are required' });
+    }
+
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.isValid) {
+      return res.status(400).json({ error: passwordValidation.errors[0] });
+    }
+
+    const userResult = await pool.query(
+      'SELECT id, name, email, role, status FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
+      [email]
+    );
+
+    if (userResult.rows.length === 0 || userResult.rows[0].status !== 'active') {
+      return res.json({
+        message: 'If your account exists, your password has been updated.',
+      });
+    }
+
+    const user = userResult.rows[0];
+    const hashed = await bcrypt.hash(newPassword, 10);
+
+    await pool.query('UPDATE users SET password = $1 WHERE id = $2', [hashed, user.id]);
+
+    await pool.query(
+      `INSERT INTO activity_logs
+        (user_id, user_name, user_role, action, target, target_type, ip_address, details, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+      [
+        user.id,
+        user.name,
+        user.role,
+        'USER_FORGOT_PASSWORD_RESET',
+        user.name || user.email,
+        'user',
+        null,
+        `${user.name} reset password using forgot password flow`,
+      ]
+    );
+
+    return res.json({ message: 'Password updated. You can now sign in.' });
+  } catch (err) {
+    console.error('forgotPassword error:', err);
     return res.status(500).json({ error: 'Server error' });
   }
 };
