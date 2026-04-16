@@ -428,7 +428,10 @@ export const changePassword = async (req: AuthRequest, res: Response) => {
     // Only allow users to change their own password (admins can use resetPassword)
     if (!req.userId || req.userId !== id) return res.status(403).json({ error: 'Forbidden' });
 
-    const result = await pool.query('SELECT password FROM users WHERE id = $1', [id]);
+    const result = await pool.query(
+      'SELECT password, name, email, role FROM users WHERE id = $1',
+      [id]
+    );
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
     const user = result.rows[0];
@@ -437,6 +440,27 @@ export const changePassword = async (req: AuthRequest, res: Response) => {
 
     const hashed = await bcrypt.hash(newPassword, 10);
     await pool.query('UPDATE users SET password = $1 WHERE id = $2', [hashed, id]);
+
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const ipAddress = Array.isArray(forwardedFor)
+      ? forwardedFor[0]
+      : (forwardedFor?.split(',')[0]?.trim() || req.ip || null);
+
+    await pool.query(
+      `INSERT INTO activity_logs
+        (user_id, user_name, user_role, action, target, target_type, ip_address, details, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+      [
+        id,
+        user.name,
+        user.role,
+        'USER_PASSWORD_CHANGED',
+        user.name || user.email,
+        'user',
+        ipAddress,
+        `${user.name} (${user.role}) changed own password`,
+      ]
+    );
 
     return res.json({ message: 'Password updated' });
   } catch (err) {
