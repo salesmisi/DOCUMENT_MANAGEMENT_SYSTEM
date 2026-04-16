@@ -10,6 +10,7 @@ import {
   deleteUser,
   resetPassword,
   changePassword,
+  regenerateRecoveryKey,
   uploadAvatar,
   restoreUser,
   permanentlyDeleteUser,
@@ -44,6 +45,7 @@ router.put('/:id', authenticate, updateUser);
 router.delete('/:id', authenticate, deleteUser);
 router.put('/:id/reset-password', authenticate, resetPassword);
 router.put('/:id/change-password', authenticate, changePassword);
+router.put('/:id/recovery-key/regenerate', authenticate, regenerateRecoveryKey);
 router.post('/:id/avatar', authenticate, avatarUpload.single('avatar'), uploadAvatar);
 router.patch('/:id/restore', authenticate, restoreUser);
 router.delete('/:id/permanent', authenticate, permanentlyDeleteUser);

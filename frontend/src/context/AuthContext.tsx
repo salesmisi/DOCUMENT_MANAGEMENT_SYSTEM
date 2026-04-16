@@ -25,11 +25,12 @@ interface AuthContextType {
   refreshCurrentUser: () => Promise<void>;
   addUser: (
     userData: Omit<User, 'id' | 'createdAt'> & { password: string }
-  ) => Promise<void>;
+  ) => Promise<{ success?: true; user?: User; recoveryKey?: string; error?: string }>;
   updateUser: (id: string, updates: Partial<User>) => Promise<void>;
   updateProfile: (updates: Partial<User>) => void;
   deleteUser: (id: string) => Promise<void>;
   resetPassword: (id: string, newPassword: string) => Promise<boolean>;
+  regenerateRecoveryKey: (id: string) => Promise<{ success?: true; recoveryKey?: string; error?: string }>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
   fetchUsers: () => Promise<void>;
 }
@@ -220,9 +221,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: err.error || 'Failed to create user' };
       }
 
-      const newUser = await res.json();
-      setUsers((prev) => [newUser, ...prev]);
-      return { success: true };
+      const payload = await res.json();
+      const createdUser = normalizeUser(payload?.user as User);
+      if (createdUser) {
+        setUsers((prev) => [createdUser, ...prev]);
+      }
+      return { success: true, user: createdUser || undefined, recoveryKey: payload?.recoveryKey };
     } catch (err) {
       console.error('addUser error:', err);
       return { error: 'Network error — could not create user' };
@@ -294,6 +298,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // 🔹 REGENERATE RECOVERY KEY — PUT /api/users/:id/recovery-key/regenerate
+  const regenerateRecoveryKey = async (id: string) => {
+    try {
+      const res = await fetch(`${API_URL}/users/${id}/recovery-key/regenerate`, {
+        method: 'PUT',
+        headers: authHeaders(token),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        return { error: data?.error || 'Failed to regenerate recovery key' };
+      }
+
+      return { success: true as const, recoveryKey: data?.recoveryKey };
+    } catch (err) {
+      console.error('regenerateRecoveryKey error:', err);
+      return { error: 'Network error — could not regenerate recovery key' };
+    }
+  };
+
   // 🔹 CHANGE PASSWORD — PUT /api/users/:id/change-password
   const changePassword = async (currentPassword: string, newPassword: string) => {
     try {
@@ -331,6 +355,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         updateProfile,
         deleteUser,
         resetPassword,
+        regenerateRecoveryKey,
         changePassword,
         fetchUsers,
         refreshCurrentUser,

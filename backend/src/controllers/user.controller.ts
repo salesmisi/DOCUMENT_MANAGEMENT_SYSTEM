@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import pool from '../db';
 
@@ -51,6 +52,10 @@ function sanitiseUser(row: any) {
     ...user,
     createdAt: user.created_at ?? user.createdAt,
   };
+}
+
+function generateRecoveryKey() {
+  return crypto.randomBytes(24).toString('base64url');
 }
 
 // ── LOGIN ────────────────────────────────────────────────
@@ -158,23 +163,28 @@ export const createUser = async (req: Request, res: Response) => {
       return res.status(409).json({ error: 'Email already exists' });
 
     const hashed = await bcrypt.hash(password, 10);
+    const recoveryKey = generateRecoveryKey();
+    const recoveryKeyHash = await bcrypt.hash(recoveryKey, 10);
     const result = await pool.query(
-      `INSERT INTO users (name, email, password, role, department, status)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO users (name, email, password, role, department, status, recovery_key_hash, recovery_key_updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
        RETURNING id, name, email, role, department, status, avatar, created_at`,
-      [name, email, hashed, role || 'staff', department || '', status || 'active']
+      [name, email, hashed, role || 'staff', department || '', status || 'active', recoveryKeyHash]
     );
 
     const r = result.rows[0];
     return res.status(201).json({
-      id: r.id,
-      name: r.name,
-      email: r.email,
-      role: r.role,
-      department: r.department,
-      status: r.status,
-      avatar: r.avatar,
-      createdAt: r.created_at,
+      user: {
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        role: r.role,
+        department: r.department,
+        status: r.status,
+        avatar: r.avatar,
+        createdAt: r.created_at,
+      },
+      recoveryKey,
     });
   } catch (err) {
     console.error('createUser error:', err);
@@ -357,13 +367,13 @@ export const resetPassword = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// ── FORGOT PASSWORD (self-service from login screen) ─────
+// ── FORGOT PASSWORD (self-service with recovery key) ─────
 export const forgotPassword = async (req: Request, res: Response) => {
   try {
-    const { email, newPassword } = req.body;
+    const { identifier, recoveryKey, newPassword } = req.body;
 
-    if (!email || !newPassword) {
-      return res.status(400).json({ error: 'email and newPassword are required' });
+    if (!identifier || !recoveryKey || !newPassword) {
+      return res.status(400).json({ error: 'identifier, recoveryKey and newPassword are required' });
     }
 
     const passwordValidation = validatePassword(newPassword);
@@ -372,17 +382,34 @@ export const forgotPassword = async (req: Request, res: Response) => {
     }
 
     const userResult = await pool.query(
-      'SELECT id, name, email, role, status FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
-      [email]
+      `SELECT id, name, email, role, status, recovery_key_hash
+       FROM users
+       WHERE LOWER(email) = LOWER($1) OR LOWER(name) = LOWER($1)`,
+      [identifier]
     );
 
-    if (userResult.rows.length === 0 || userResult.rows[0].status !== 'active') {
-      return res.json({
-        message: 'If your account exists, your password has been updated.',
-      });
+    if (userResult.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid recovery key or user information' });
     }
 
-    const user = userResult.rows[0];
+    const normalizedIdentifier = String(identifier).toLowerCase();
+    const exactEmailMatch = userResult.rows.find(
+      (row) => String(row.email).toLowerCase() === normalizedIdentifier
+    );
+    if (!exactEmailMatch && userResult.rows.length > 1) {
+      return res.status(400).json({ error: 'Invalid recovery key or user information' });
+    }
+
+    const user = exactEmailMatch || userResult.rows[0];
+    if (user.status !== 'active' || !user.recovery_key_hash) {
+      return res.status(400).json({ error: 'Invalid recovery key or user information' });
+    }
+
+    const keyMatches = await bcrypt.compare(recoveryKey, user.recovery_key_hash);
+    if (!keyMatches) {
+      return res.status(400).json({ error: 'Invalid recovery key or user information' });
+    }
+
     const hashed = await bcrypt.hash(newPassword, 10);
 
     await pool.query('UPDATE users SET password = $1 WHERE id = $2', [hashed, user.id]);
@@ -406,6 +433,84 @@ export const forgotPassword = async (req: Request, res: Response) => {
     return res.json({ message: 'Password updated. You can now sign in.' });
   } catch (err) {
     console.error('forgotPassword error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ── REGENERATE RECOVERY KEY ─────────────────────────────
+export const regenerateRecoveryKey = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (!req.userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const actorResult = await pool.query(
+      'SELECT id, name, role FROM users WHERE id = $1 AND status = $2',
+      [req.userId, 'active']
+    );
+    if (actorResult.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid user session' });
+    }
+
+    const actor = actorResult.rows[0];
+    if (actor.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admin can regenerate recovery keys' });
+    }
+
+    const targetUserResult = await pool.query(
+      'SELECT id, name, email FROM users WHERE id = $1',
+      [id]
+    );
+    if (targetUserResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const targetUser = targetUserResult.rows[0];
+    const newRecoveryKey = generateRecoveryKey();
+    const newRecoveryKeyHash = await bcrypt.hash(newRecoveryKey, 10);
+
+    await pool.query(
+      `UPDATE users
+       SET recovery_key_hash = $1,
+           recovery_key_updated_at = NOW()
+       WHERE id = $2`,
+      [newRecoveryKeyHash, id]
+    );
+
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const ipAddress = Array.isArray(forwardedFor)
+      ? forwardedFor[0]
+      : (forwardedFor?.split(',')[0]?.trim() || req.ip || null);
+
+    await pool.query(
+      `INSERT INTO activity_logs
+        (user_id, user_name, user_role, action, target, target_type, ip_address, details, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+      [
+        actor.id,
+        actor.name,
+        actor.role,
+        'USER_RECOVERY_KEY_REGENERATED',
+        targetUser.name || targetUser.email,
+        'user',
+        ipAddress,
+        `${actor.name} regenerated recovery key for ${targetUser.name || targetUser.email}`,
+      ]
+    );
+
+    return res.json({
+      message: 'Recovery key regenerated successfully',
+      recoveryKey: newRecoveryKey,
+      user: {
+        id: targetUser.id,
+        name: targetUser.name,
+        email: targetUser.email,
+      },
+    });
+  } catch (err) {
+    console.error('regenerateRecoveryKey error:', err);
     return res.status(500).json({ error: 'Server error' });
   }
 };
