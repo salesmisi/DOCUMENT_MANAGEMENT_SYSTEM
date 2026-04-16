@@ -59,6 +59,8 @@ async function runMigrations() {
         name VARCHAR(150) NOT NULL,
         email VARCHAR(255) NOT NULL UNIQUE,
         password VARCHAR(255) NOT NULL,
+        recovery_key_hash VARCHAR(255),
+        recovery_key_updated_at TIMESTAMPTZ,
         role VARCHAR(20) NOT NULL DEFAULT 'staff' CHECK (role IN ('admin','manager','staff')),
         department VARCHAR(100) NOT NULL,
         status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive','trashed')),
@@ -240,6 +242,8 @@ async function runMigrations() {
 
     // Migration: Add soft delete columns to users table
     await safeQuery(`ALTER TABLE users ADD COLUMN IF NOT EXISTS trashed_at TIMESTAMPTZ`, 'users.trashed_at');
+    await safeQuery(`ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_key_hash VARCHAR(255)`, 'users.recovery_key_hash');
+    await safeQuery(`ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_key_updated_at TIMESTAMPTZ`, 'users.recovery_key_updated_at');
     await safeQuery(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_status_check`, 'users_status_check drop');
     await safeQuery(`ALTER TABLE users ADD CONSTRAINT users_status_check CHECK (status IN ('active', 'inactive', 'trashed'))`, 'users_status_check add');
     await safeQuery(`CREATE INDEX IF NOT EXISTS idx_users_trashed_at ON users(trashed_at) WHERE trashed_at IS NOT NULL`, 'users.trashed_at index');
