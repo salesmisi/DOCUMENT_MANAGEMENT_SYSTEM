@@ -3,8 +3,9 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '../App';
 import { Trash2, CheckCircle, XCircle, Eye, Clock, FileText, Folder, AlertTriangle, X } from 'lucide-react';
 import FilePreview from '../components/FilePreview';
+import { apiUrl } from '../utils/api';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = apiUrl('');
 
 interface DeleteRequest {
   id: string;

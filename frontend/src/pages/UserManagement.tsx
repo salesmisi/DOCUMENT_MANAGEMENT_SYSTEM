@@ -17,6 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { useDocuments } from '../context/DocumentContext';
 import { AutocompleteSearch } from '../components/AutocompleteSearch';
 import { useLanguage } from '../context/LanguageContext';
+import { apiUrl } from '../utils/api';
 
 // Password validation rules
 const PASSWORD_RULES = {
@@ -62,7 +63,7 @@ interface Department {
 }
 
 export function UserManagement() {
-  const { user: currentUser, users, addUser, updateUser, deleteUser, resetPassword } = useAuth();
+  const { user: currentUser, users, addUser, updateUser, deleteUser, resetPassword, regenerateRecoveryKey } = useAuth();
   const { addLog } = useDocuments();
   const { t } = useLanguage();
   const [search, setSearch] = useState('');
@@ -99,13 +100,14 @@ export function UserManagement() {
   const [resetPwShow, setResetPwShow] = useState(false);
   const [resetPwStatus, setResetPwStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [resetPwError, setResetPwError] = useState('');
+  const [recoveryKeyPopup, setRecoveryKeyPopup] = useState<{ title: string; key: string } | null>(null);
 
   // Fetch departments from API on mount
   const fetchDepartments = async () => {
     try {
       setLoadingDepts(true);
       const token = localStorage.getItem('dms_token');
-      const res = await fetch('http://localhost:5000/api/departments', {
+      const res = await fetch(apiUrl('/departments'), {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -131,7 +133,7 @@ export function UserManagement() {
     }
     try {
       const token = localStorage.getItem('dms_token');
-      const res = await fetch('http://localhost:5000/api/departments', {
+      const res = await fetch(apiUrl('/departments'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -175,7 +177,7 @@ export function UserManagement() {
     if (!deleteDeptConfirm) return;
     try {
       const token = localStorage.getItem('dms_token');
-      const res = await fetch(`http://localhost:5000/api/departments/${deleteDeptConfirm.id}`, {
+      const res = await fetch(apiUrl(`/departments/${deleteDeptConfirm.id}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -246,6 +248,39 @@ export function UserManagement() {
       status: 'active'
     });
     setShowAddUser(false);
+    if (result?.recoveryKey) {
+      setRecoveryKeyPopup({
+        title: `User created successfully. Please save this recovery key:`,
+        key: result.recoveryKey,
+      });
+    }
+  };
+
+  const handleRegenerateRecoveryKey = async (id: string, name: string) => {
+    const result = await regenerateRecoveryKey(id);
+    if (result.error) {
+      alert(result.error);
+      return;
+    }
+
+    addLog({
+      userId: currentUser?.id || '',
+      userName: currentUser?.name || '',
+      userRole: currentUser?.role || 'admin',
+      action: 'USER_RECOVERY_KEY_REGENERATED',
+      target: name,
+      targetType: 'user',
+      timestamp: new Date().toISOString(),
+      ipAddress: '192.168.1.100',
+      details: `Recovery key regenerated for ${name}`,
+    });
+
+    if (result.recoveryKey) {
+      setRecoveryKeyPopup({
+        title: `Recovery key regenerated. Please save this recovery key:`,
+        key: result.recoveryKey,
+      });
+    }
   };
   const handleToggleStatus = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
@@ -296,6 +331,16 @@ export function UserManagement() {
   };
 
   const handleDeleteUser = async (id: string, name: string) => {
+    const targetUser = users.find((u) => u.id === id);
+    const isSystemAdministrator =
+      targetUser?.email?.toLowerCase() === 'admin@system.com' ||
+      targetUser?.name?.toLowerCase() === 'system administrator';
+
+    if (isSystemAdministrator) {
+      alert('System Administrator account cannot be deleted.');
+      return;
+    }
+
     setDeleteConfirm({ id, name });
   };
   const confirmDeleteUser = async () => {
@@ -468,7 +513,14 @@ export function UserManagement() {
                       title={t('resetPassword')}>
                           <Key size={15} />
                         </button>
-                        {u.id !== 'user-1' &&
+                        <button
+                          onClick={() => handleRegenerateRecoveryKey(u.id, u.name)}
+                          className="p-1.5 text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors"
+                          title="Regenerate Recovery Key"
+                        >
+                          <Shield size={15} />
+                        </button>
+                        {u.email?.toLowerCase() !== 'admin@system.com' &&
                     <button
                       onClick={() => handleDeleteUser(u.id, u.name)}
                       className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
@@ -856,6 +908,31 @@ export function UserManagement() {
           </div>
         </div>
       }
+
+      {/* Recovery Key Popup */}
+      {recoveryKeyPopup && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mb-4">
+                <Shield className="text-emerald-700" size={24} />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">Recovery Key</h3>
+              <p className="text-sm text-gray-600 mb-4">{recoveryKeyPopup.title}</p>
+              <div className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm font-semibold tracking-wide break-all mb-5">
+                {recoveryKeyPopup.key}
+              </div>
+              <p className="text-xs text-red-600 mb-5">This recovery key will only be shown once.</p>
+              <button
+                onClick={() => setRecoveryKeyPopup(null)}
+                className="w-full py-2.5 bg-[#005F02] text-white text-sm font-medium rounded-lg hover:bg-[#427A43] transition-colors"
+              >
+                {t('done')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete User Confirmation Modal */}
       {deleteConfirm && (

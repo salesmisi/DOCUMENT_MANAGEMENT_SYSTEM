@@ -48,10 +48,10 @@ async function main() {
     }
 
     // Insert department
-    const deptInsert = await client.query(
-      'INSERT INTO departments (name, description, folder_path) VALUES ($1, $2, $3) RETURNING id',
-      [cleanName, 'Created by test script', cleanName]
-    );
+      const deptInsert = await client.query(
+        'INSERT INTO departments (name, description) VALUES ($1, $2) RETURNING id',
+        [cleanName, 'Created by test script']
+      );
     console.log('Created department id:', deptInsert.rows[0].id);
 
   } catch (err) {

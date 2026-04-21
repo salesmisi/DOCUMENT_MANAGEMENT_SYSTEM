@@ -22,6 +22,7 @@ import { useNavigation, PageName } from '../App';
 import { useDocuments } from '../context/DocumentContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useLogo, LOGO_SIZES } from '../context/LogoContext';
+import { assetUrl } from '../utils/api';
 interface SidebarProps {
   isOpen: boolean;
   onToggle: () => void;
@@ -52,13 +53,13 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
     icon: <LayoutDashboard size={18} />,
     roles: ['admin', 'manager', 'staff']
   },
-  ...(user?.role === 'manager' ?
+  ...(user?.role === 'manager' || user?.role === 'admin' ?
   [
   {
     id: 'approvals' as PageName,
     label: t('pendingApprovals'),
     icon: <CheckSquare size={18} />,
-    roles: ['manager'],
+    roles: ['admin', 'manager'],
     badge: pendingCount
   }] :
 
@@ -202,7 +203,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
               }}>
 
                 {user.avatar ? (
-                  <img src={`http://localhost:5000${user.avatar}`} alt="" className="w-full h-full object-cover" />
+                  <img src={assetUrl(user.avatar)} alt="" className="w-full h-full object-cover" />
                 ) : (
                   user.name.charAt(0).toUpperCase()
                 )}

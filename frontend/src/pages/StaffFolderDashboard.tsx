@@ -12,23 +12,7 @@ export function StaffFolderDashboard() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; childCount: number } | null>(null);
   const [newFolder, setNewFolder] = useState({ name: '', parentId: null as string | null, department: user?.department || '' });
 
-  const visibleFolders = useMemo(() => {
-    if (!user) return [];
-    if (user.role === 'admin') return folders;
-    return folders.filter((folder) => {
-      const vis = (folder as any).visibility || 'private';
-      if (vis === 'admin-only') return false;
-      if (user.role === 'manager') return folder.department === user.department;
-      if (user.role === 'staff') {
-        // Staff see department-visible folders for their department
-        // or private folders they themselves created.
-        if (vis === 'department' && String(folder.department || '').trim().toLowerCase() === String(user.department || '').trim().toLowerCase()) return true;
-        if (vis === 'private' && String(folder.createdById || '') === String(user.id || '')) return true;
-        return false;
-      }
-      return false;
-    });
-  }, [folders, user]);
+  const visibleFolders = useMemo(() => folders, [folders]);
 
   const rootFolders = visibleFolders.filter((f) => f.parentId === null);
   const getChildren = (id: string) => visibleFolders.filter((f) => f.parentId === id);

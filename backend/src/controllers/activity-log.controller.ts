@@ -1,9 +1,47 @@
 import type { Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import pool from '../db';
-import path from 'path';
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
+
+const DARK_GREEN = 'FF005F02';
+const GOLD = 'FFC0B87A';
+const LIGHT_GREEN = 'FFE8F5E9';
+const WHITE = 'FFFFFFFF';
+
+const applyCellStyle = (cell: ExcelJS.Cell, options?: {
+  fillColor?: string;
+  fontColor?: string;
+  bold?: boolean;
+  horizontal?: ExcelJS.Alignment['horizontal'];
+  vertical?: ExcelJS.Alignment['vertical'];
+  wrapText?: boolean;
+}) => {
+  cell.font = {
+    name: 'Arial',
+    size: 10,
+    bold: options?.bold ?? false,
+    color: options?.fontColor ? { argb: options.fontColor } : undefined,
+  };
+  cell.alignment = {
+    horizontal: options?.horizontal ?? 'left',
+    vertical: options?.vertical ?? 'middle',
+    wrapText: options?.wrapText ?? false,
+  };
+  cell.border = {
+    top: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+    left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+    bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+    right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+  };
+  if (options?.fillColor) {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: options.fillColor },
+    };
+  }
+};
 
 // Get all activity logs (admin only)
 export const getActivityLogs = async (req: AuthRequest, res: Response) => {
@@ -99,93 +137,71 @@ export const downloadActivityLogs = async (req: AuthRequest, res: Response) => {
        ORDER BY created_at DESC`
     );
 
-    const templatePath = path.join(__dirname, '..', '..', '..', 'template', 'activity_log_template.xlsx');
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(templatePath);
+    const worksheet = workbook.addWorksheet('Activity Logs', {
+      properties: { defaultRowHeight: 22 },
+      views: [{ state: 'frozen', ySplit: 2 }],
+    });
 
-    const worksheet = workbook.worksheets[0];
-    if (!worksheet) {
-      return res.status(500).json({ error: 'Template worksheet not found' });
-    }
+    worksheet.columns = [
+      { header: 'Timestamp', key: 'timestamp', width: 24 },
+      { header: 'User', key: 'user', width: 22 },
+      { header: 'Action', key: 'action', width: 22 },
+      { header: 'Target', key: 'target', width: 24 },
+      { header: 'IP Address', key: 'ipAddress', width: 18 },
+      { header: 'Details', key: 'details', width: 50 },
+    ];
 
-    // Template layout (merged columns):
-    //   A & Z  = decorative sidebar
-    //   B:E    = TIMESTAMP (merged)
-    //   F:I    = USER      (merged)
-    //   J:M    = ACTION    (merged)
-    //   N:Q    = TARGET    (merged)
-    //   R:U    = IP ADDRESS (no data-row merge in template)
-    //   V:Y    = DETAILS   (merged)
-    // Rows 1-3 = title, Rows 4-5 = headers, Row 6+ = data
+    worksheet.mergeCells('A1:F1');
+    const titleCell = worksheet.getCell('A1');
+    titleCell.value = 'MAPTECH DOCUMENT MANAGEMENT SYSTEM - ACTIVITY LOGS';
+    applyCellStyle(titleCell, {
+      fillColor: DARK_GREEN,
+      fontColor: WHITE,
+      bold: true,
+      horizontal: 'center',
+      vertical: 'middle',
+    });
+    titleCell.font = { ...titleCell.font, size: 14 };
+    worksheet.getRow(1).height = 28;
 
-    const DATA_START_ROW = 6;
-
-    // Column start positions for each field (first col of each merged group)
-    const COL_TIMESTAMP = 2;   // B
-    const COL_USER = 6;        // F
-    const COL_ACTION = 10;     // J
-    const COL_TARGET = 14;     // N
-    const COL_IP = 18;         // R
-    const COL_DETAILS = 22;    // V
-
-    // Capture the template style from the first data row before overwriting
-    const templateRow = worksheet.getRow(DATA_START_ROW);
-    const templateStyles: Record<number, ExcelJS.Style> = {};
-    for (let c = 1; c <= 26; c++) {
-      const cell = templateRow.getCell(c);
-      templateStyles[c] = {
-        font: cell.font ? { ...cell.font } : {},
-        fill: cell.fill ? { ...cell.fill } : {},
-        alignment: cell.alignment ? { ...cell.alignment } : {},
-        border: cell.border ? { ...cell.border } : {},
-        numFmt: cell.numFmt || '',
-        protection: cell.protection ? { ...cell.protection } : {},
-      } as ExcelJS.Style;
-    }
-
-    // Pre-defined merges exist for rows 6-102 (97 rows) in the template.
-    // For rows beyond that, we need to add merges dynamically.
-    const TEMPLATE_LAST_ROW = 102;
+    const headerRow = worksheet.getRow(2);
+    headerRow.values = ['Timestamp', 'User', 'Action', 'Target', 'IP Address', 'Details'];
+    headerRow.height = 24;
+    headerRow.eachCell((cell) => {
+      applyCellStyle(cell, {
+        fillColor: GOLD,
+        fontColor: DARK_GREEN,
+        bold: true,
+        horizontal: 'center',
+        vertical: 'middle',
+        wrapText: true,
+      });
+    });
 
     result.rows.forEach((log, index) => {
-      const rowNum = DATA_START_ROW + index;
-      const row = worksheet.getRow(rowNum);
-
       const timestamp = log.created_at
         ? new Date(log.created_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' })
         : '';
 
-      // Write values into the first cell of each merged group
-      row.getCell(COL_TIMESTAMP).value = timestamp;
-      row.getCell(COL_USER).value = log.user_name || '';
-      row.getCell(COL_ACTION).value = log.action || '';
-      row.getCell(COL_TARGET).value = log.target || '';
-      row.getCell(COL_IP).value = log.ip_address || '';
-      row.getCell(COL_DETAILS).value = log.details || '';
+      const row = worksheet.addRow([
+        timestamp,
+        log.user_name || '',
+        log.action || '',
+        log.target || '',
+        log.ip_address || '',
+        log.details || '',
+      ]);
 
-      // Apply template styles to all 26 columns of the row
-      for (let c = 1; c <= 26; c++) {
-        const cell = row.getCell(c);
-        const style = templateStyles[c];
-        if (style) {
-          cell.font = { ...style.font };
-          cell.fill = { ...style.fill } as ExcelJS.Fill;
-          cell.alignment = { ...style.alignment };
-          cell.border = { ...style.border };
-        }
-      }
-
-      // Add merges for rows beyond the template's pre-defined range
-      if (rowNum > TEMPLATE_LAST_ROW) {
-        worksheet.mergeCells(`B${rowNum}:E${rowNum}`);
-        worksheet.mergeCells(`F${rowNum}:I${rowNum}`);
-        worksheet.mergeCells(`J${rowNum}:M${rowNum}`);
-        worksheet.mergeCells(`N${rowNum}:Q${rowNum}`);
-        worksheet.mergeCells(`R${rowNum}:U${rowNum}`);
-        worksheet.mergeCells(`V${rowNum}:Y${rowNum}`);
-      }
-
-      row.commit();
+      row.height = 22;
+      row.eachCell((cell) => {
+        applyCellStyle(cell, {
+          fillColor: index % 2 === 0 ? LIGHT_GREEN : WHITE,
+          fontColor: 'FF333333',
+          vertical: 'middle',
+          wrapText: true,
+        });
+      });
     });
 
     const filename = `Activity_Logs_${new Date().toISOString().slice(0, 10)}.xlsx`;

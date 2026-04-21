@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   FolderIcon,
   FolderOpenIcon,
@@ -7,6 +7,9 @@ import {
   PlusIcon,
   Trash2,
   Lock,
+  Pencil,
+  Check,
+  X,
 } from 'lucide-react';
 import { useDocuments } from '../context/DocumentContext';
 import { useAuth } from '../context/AuthContext';
@@ -45,7 +48,10 @@ function FolderNode({
   const [isExpanded, setIsExpanded] = useState(level < 2 || (forceExpandIds ? forceExpandIds.has(folder.id) : false));
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showRequestDeleteModal, setShowRequestDeleteModal] = useState(false);
-  const { deleteFolder } = useDocuments();
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(folder.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { deleteFolder, updateFolder } = useDocuments();
   const { user } = useAuth();
   const children = folders.filter((f) => f.parentId === folder.id);
   const sortByName = (x: Folder, y: Folder) =>
@@ -55,6 +61,60 @@ function FolderNode({
   const isSelected = selectedFolderId === folder.id;
   const isDepartment = (folder as any).is_department || (folder as any).isDepartment || false;
   const isAdminCreated = folder.createdByRole === 'admin';
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  // Determine edit permissions:
+  // - Admin can edit any non-department folder
+  // - Department folders: only admin can edit (but typically protected)
+  // - User's own folder: can edit
+  let canEdit = false;
+  if (user?.role === 'admin' && !isDepartment) {
+    canEdit = true;
+  } else if (!isDepartment && !isAdminCreated && folder.createdById === user?.id) {
+    canEdit = true;
+  }
+
+  // Handle save rename
+  const handleSaveRename = async () => {
+    const trimmed = editValue.trim();
+    if (!trimmed || trimmed === folder.name) {
+      setIsEditing(false);
+      setEditValue(folder.name);
+      return;
+    }
+    try {
+      await updateFolder(folder.id, { name: trimmed });
+      setIsEditing(false);
+    } catch (err) {
+      console.error('Failed to rename folder:', err);
+      setEditValue(folder.name);
+      setIsEditing(false);
+    }
+  };
+
+  // Handle cancel rename
+  const handleCancelRename = () => {
+    setEditValue(folder.name);
+    setIsEditing(false);
+  };
+
+  // Handle key press in input
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSaveRename();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      handleCancelRename();
+    }
+  };
 
   // Determine delete permissions:
   // - Admin can always delete
@@ -113,14 +173,57 @@ function FolderNode({
           <FolderIcon size={15} className={`ft-icon ${isSelected ? 'text-white' : 'text-maptech-accent'}`} />
         )}
 
-        <span className="ft-label" title={folder.name}>{folder.name}</span>
-        {isDepartment && (
-          <span className="ml-2 text-xs text-gray-400 flex items-center" title="Department Folder — protected">
-            <Lock size={12} />
-          </span>
+        {/* Folder name - either editable input or label */}
+        {isEditing ? (
+          <div className="flex items-center gap-1 flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+            <input
+              ref={inputRef}
+              type="text"
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onBlur={handleSaveRename}
+              className="flex-1 min-w-0 px-1 py-0.5 text-xs border border-maptech-primary rounded bg-white text-maptech-dark focus:outline-none focus:ring-1 focus:ring-maptech-primary"
+            />
+            <button
+              onClick={(e) => { e.stopPropagation(); handleSaveRename(); }}
+              className="p-0.5 text-green-600 hover:bg-green-50 rounded"
+              title="Save"
+            >
+              <Check size={12} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleCancelRename(); }}
+              className="p-0.5 text-red-600 hover:bg-red-50 rounded"
+              title="Cancel"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ) : (
+          <>
+            <span className="ft-label" title={folder.name}>{folder.name}</span>
+            {isDepartment && (
+              <span className="ml-2 text-xs text-gray-400 flex items-center" title="Department Folder — protected">
+                <Lock size={12} />
+              </span>
+            )}
+          </>
         )}
 
-        {canDelete && user?.role === 'admin' && (
+        {/* Action buttons - only show when not editing */}
+        {!isEditing && canEdit && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setIsEditing(true); setEditValue(folder.name); }}
+            className={`ft-action ${
+              isSelected ? 'text-white/70 hover:text-white hover:bg-white/20' : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'
+            }`}
+            title="Rename folder"
+          >
+            <Pencil size={12} />
+          </button>
+        )}
+        {!isEditing && canDelete && user?.role === 'admin' && (
           <button
             onClick={(e) => { e.stopPropagation(); setShowDeleteModal(true); }}
             className={`ft-action ${
@@ -131,7 +234,7 @@ function FolderNode({
             <Trash2 size={12} />
           </button>
         )}
-        {canRequestDelete && (
+        {!isEditing && canRequestDelete && (
           <button
             onClick={(e) => { e.stopPropagation(); setShowRequestDeleteModal(true); }}
             className={`ft-action ${
@@ -200,55 +303,7 @@ export function FolderTree({
   const { folders } = useDocuments();
   const { user } = useAuth();
 
-  const visibleFolders = React.useMemo(() => {
-    if (!user) return [];
-    if (user.role === 'admin') return folders;
-
-    // Build a set of visible folder IDs including descendants
-    const visibleIds = new Set<string>();
-
-    // First pass: find all directly visible root/parent folders
-    const directlyVisible = folders.filter((folder) => {
-      const vis = (folder as any).visibility || 'private';
-      if (vis === 'admin-only') return false;
-      if (user.role === 'manager') {
-        return String(folder.department || '').trim().toLowerCase() === String(user.department || '').trim().toLowerCase();
-      }
-      if (user.role === 'staff') {
-        if (vis === 'department' && String(folder.department || '').trim().toLowerCase() === String(user.department || '').trim().toLowerCase()) return true;
-        if (vis === 'private' && folder.createdById === user.id) return true;
-        return false;
-      }
-      return false;
-    });
-
-    directlyVisible.forEach((f) => visibleIds.add(f.id));
-
-    // Second pass: recursively add all descendants of visible folders
-    const addDescendants = (parentId: string) => {
-      folders.forEach((f) => {
-        if (f.parentId === parentId && !visibleIds.has(f.id)) {
-          visibleIds.add(f.id);
-          addDescendants(f.id);
-        }
-      });
-    };
-
-    directlyVisible.forEach((f) => addDescendants(f.id));
-
-    // Third pass: add ancestors of visible folders (so tree structure is complete)
-    const addAncestors = (folderId: string) => {
-      const folder = folders.find((f) => f.id === folderId);
-      if (folder?.parentId && !visibleIds.has(folder.parentId)) {
-        visibleIds.add(folder.parentId);
-        addAncestors(folder.parentId);
-      }
-    };
-
-    directlyVisible.forEach((f) => addAncestors(f.id));
-
-    return folders.filter((f) => visibleIds.has(f.id));
-  }, [folders, user]);
+  const visibleFolders = React.useMemo(() => folders, [folders]);
 
   const sortByName = (x: Folder, y: Folder) =>
     String(x.name || '').localeCompare(String(y.name || ''), undefined, { sensitivity: 'base' });
@@ -308,21 +363,25 @@ export function FolderTree({
 
     return matched;
   }, [normalizedSearch, visibleFolders, childrenMap]);
-          {showDeleteModal && user?.role === 'admin' && (
-            <DeleteFolderModal
-              folderName={folder.name}
-              hasChildren={hasChildren}
-              childCount={children.length}
-              onConfirm={() => {
-                (async () => {
-                  if (isSelected) onSelectFolder && onSelectFolder(null);
-                  await deleteFolder(folder.id);
-                  setShowDeleteModal(false);
-                })();
-              }}
-              onCancel={() => setShowDeleteModal(false)}
-            />
-          )}
+
+  // Root folders (no parent or parent in visibleFolders)
+  const rootFolders = React.useMemo(() => {
+    const vIds = new Set(visibleFolders.map((f) => f.id));
+    return visibleFolders
+      .filter((f) => !f.parentId || !vIds.has(f.parentId))
+      .filter((f) => !forceShowIds || forceShowIds.has(f.id))
+      .sort(sortByName);
+  }, [visibleFolders, forceShowIds, sortByName]);
+
+  return (
+    <div className="ft-root">
+      <div className="flex items-center justify-between mb-2 px-1">
+        <span className="text-sm font-semibold text-maptech-dark">Folders</span>
+        {showCreateButton && onCreateFolder && (user?.role === 'admin' || user?.role === 'manager') && (
+          <button
+            onClick={() => onCreateFolder(null)}
+            className="p-1 text-maptech-primary hover:text-maptech-accent rounded"
+            title="Create root folder"
           >
             <PlusIcon size={16} />
           </button>

@@ -15,21 +15,7 @@ export function CreateFolderModal({
   const { user } = useAuth();
   const { folders, addFolder, addLog } = useDocuments();
 
-  const visibleFolders = React.useMemo(() => {
-    if (!user) return [];
-    if (user.role === 'admin') return folders;
-    if (user.role === 'manager') {
-      return folders.filter((folder) => folder.department === user.department);
-    }
-    // Staff can see folders they created or locked folders assigned to them
-    return folders.filter((folder) => {
-      const createdByRole = (folder as any).createdByRole;
-      const isDepartment = (folder as any).isDepartment;
-      // Staff can see: their own folders, or admin/manager created folders in their department
-      return folder.createdById === user.id ||
-             (folder.department === user.department && (createdByRole === 'admin' || createdByRole === 'manager' || isDepartment));
-    });
-  }, [folders, user]);
+  const visibleFolders = React.useMemo(() => folders, [folders]);
 
   const defaultVisibility = user?.role === 'admin' ? 'admin-only' : user?.role === 'staff' ? 'private' : 'department';
 

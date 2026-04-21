@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
+import { apiUrl } from '../utils/api';
 
 interface Props {
   document: any;
@@ -20,7 +21,7 @@ const RequestDeleteModal: React.FC<Props> = ({ document, onClose, onRequested })
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('http://localhost:5000/api/delete-requests', {
+      const res = await fetch(apiUrl('/delete-requests'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

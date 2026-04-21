@@ -8,19 +8,21 @@ import {
 'lucide-react';
 import { useDocuments } from '../context/DocumentContext';
 import { useAuth } from '../context/AuthContext';
+import { apiUrl } from '../utils/api';
 interface UploadModalProps {
   onClose: () => void;
   defaultFolderId?: string;
 }
 export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
-  const { addDocument, folders, addLog } = useDocuments();
-  const { user } = useAuth();
+  const { addDocument, folders, addLog, refreshDocuments } = useDocuments();
+  const { user, token } = useAuth();
+  const requiresApproval = user?.role === 'staff';
   const [form, setForm] = useState({
     title: '',
     departmentId: '',
     date: new Date().toISOString().split('T')[0],
     folderId: defaultFolderId || '',
-    needsApproval: true,
+    needsApproval: requiresApproval,
     description: '',
     tags: '',
     fileType: 'pdf' as 'pdf' | 'doc' | 'docx' | 'xlsx' | 'jpg' | 'png' | 'tiff' | 'mp4' | 'mov' | 'avi' | 'mkv',
@@ -30,6 +32,7 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
   const [selectedSubfolderId, setSelectedSubfolderId] = useState<string>('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
+  const [submittedNeedsApproval, setSubmittedNeedsApproval] = useState(requiresApproval);
   const [serverReference, setServerReference] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -38,17 +41,7 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [departments, setDepartments] = React.useState<Array<{id: string; name: string}>>([]);
 
-  const visibleFolders = React.useMemo(() => {
-    if (!user) return [];
-    if (user.role === 'admin') return folders;
-    return folders.filter((folder) => {
-      const vis = (folder as any).visibility || 'private';
-      if (vis === 'admin-only') return false;
-      if (user.role === 'manager') return folder.department === user.department;
-      if (user.role === 'staff') return folder.createdById === user.id;
-      return false;
-    });
-  }, [folders, user]);
+  const visibleFolders = React.useMemo(() => folders, [folders]);
   const rootFolders = visibleFolders.filter((f) => f.parentId === null);
   const subFolders = visibleFolders.filter((f) => f.parentId !== null);
 
@@ -107,6 +100,11 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
       }
     }
   }, [defaultFolderId, folders]);
+
+  React.useEffect(() => {
+    setForm((prev) => ({ ...prev, needsApproval: requiresApproval }));
+  }, [requiresApproval]);
+
   const API_BASE = (import.meta.env.VITE_API_URL as string) || '';
   const validate = () => {
     const errs: Record<string, string> = {};
@@ -138,18 +136,22 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
   formData.append('department_id', form.departmentId);
   formData.append('date', form.date);
   formData.append('folder_id', form.folderId); // REQUIRED
-  formData.append('needs_approval', String(form.needsApproval));
+  formData.append('needs_approval', String(requiresApproval));
   formData.append('description', form.description || '');
   formData.append('file_type', form.fileType);
   formData.append('size', form.size);
   formData.append('tags', JSON.stringify(tags));
 
-  const token = localStorage.getItem("dms_token");
+  const authToken = token || localStorage.getItem('dms_token') || localStorage.getItem('token');
 
-  const res = await fetch("http://localhost:5000/api/documents", {
-    method: "POST",
+  if (!authToken) {
+    throw new Error('Authentication required. Please sign in again.');
+  }
+
+  const res = await fetch(apiUrl('/documents'), {
+    method: 'POST',
     headers: {
-      Authorization: `Bearer ${token}`
+      Authorization: `Bearer ${authToken}`
     },
     body: formData
   });
@@ -173,6 +175,7 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
 
       // Add document locally (omit id so context generates local id)
       const serverDoc = data.document || {};
+      const effectiveNeedsApproval = serverDoc.needs_approval === undefined ? requiresApproval : serverDoc.needs_approval;
       const localDoc = {
         id: serverDoc.id,
         title: serverDoc.title || form.title,
@@ -181,17 +184,18 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
         date: serverDoc.date || form.date,
         uploadedBy: serverDoc.uploaded_by || user?.name || '',
         uploadedById: serverDoc.uploaded_by_id || user?.id || '',
-        status: serverDoc.status || (form.needsApproval ? 'pending' : 'approved'),
+        status: serverDoc.status || (effectiveNeedsApproval ? 'pending' : 'approved'),
         version: serverDoc.version || 1,
         fileType: serverDoc.file_type || form.fileType,
         size: serverDoc.size || form.size,
         folderId: serverDoc.folder_id || form.folderId,
-        needsApproval: serverDoc.needs_approval === undefined ? form.needsApproval : serverDoc.needs_approval,
+        needsApproval: effectiveNeedsApproval,
         description: serverDoc.description || form.description,
         tags: serverDoc.tags || tags
       };
 
       addDocument(localDoc as any);
+      await refreshDocuments();
 
       addLog({
         userId: user?.id || '',
@@ -202,16 +206,17 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
         targetType: 'document',
         timestamp: new Date().toISOString(),
         ipAddress: '192.168.1.100',
-        details: form.needsApproval ? 'Uploaded, pending approval' : 'Uploaded and auto-approved'
+        details: effectiveNeedsApproval ? 'Uploaded, pending approval' : 'Uploaded and auto-approved'
       });
 
+      setSubmittedNeedsApproval(effectiveNeedsApproval);
       setSubmitted(true);
       setLoading(false);
       // keep modal open briefly to show success & reference
       setTimeout(onClose, 1800);
     } catch (err: any) {
       console.error('Upload error', err);
-      setUploadError('Network error — upload failed');
+      setUploadError(err?.message || 'Network error — upload failed');
       setLoading(false);
     }
   };
@@ -304,7 +309,7 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
             Document Uploaded!
           </h3>
           <p className="text-sm text-gray-500">
-            {form.needsApproval ?
+            {submittedNeedsApproval ?
             'Your document has been submitted for approval.' :
             'Your document has been saved successfully.'}
           </p>
@@ -496,7 +501,7 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
             </div>
 
             <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-1.5">
+              <label className="text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-1.5">
                 <Tag size={14} />
                 Tags (comma-separated)
               </label>
@@ -522,10 +527,12 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
             </div>
             <div>
               <p className="text-sm font-medium text-[#005F02]">
-                Requires Approval
+                {requiresApproval ? 'Requires Approval' : 'Auto Approved'}
               </p>
               <p className="text-xs text-gray-600 mt-0.5">
-                This document will be sent to manager for review
+                {requiresApproval
+                  ? 'Staff uploads are sent to a manager or admin for review'
+                  : 'Admin and manager uploads are saved immediately without approval'}
               </p>
             </div>
           </div>
@@ -541,7 +548,7 @@ export function UploadModal({ onClose, defaultFolderId }: UploadModalProps) {
             disabled={loading}
             className={`flex-1 py-3 text-white font-semibold text-sm rounded-xl transition-colors ${loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#005F02] hover:bg-[#427A43]'}`}>
 
-            {loading ? 'Uploading...' : 'Submit for Approval'}
+            {loading ? 'Uploading...' : requiresApproval ? 'Submit for Approval' : 'Upload Document'}
           </button>
           <button
             onClick={onClose}

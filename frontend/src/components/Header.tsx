@@ -5,6 +5,7 @@ import { useNavigation, PageName } from '../App';
 import { useDocuments } from '../context/DocumentContext';
 import { useNotifications } from '../context/NotificationContext';
 import { hasApprovalAccess } from '../utils/roles';
+import { assetUrl } from '../utils/api';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
 interface HeaderProps {
@@ -203,7 +204,7 @@ export function Header({ onMenuToggle, currentPage }: HeaderProps) {
             }}>
 
             {user?.avatar ? (
-              <img src={`http://localhost:5000${user.avatar}`} alt="" className="w-full h-full object-cover" />
+              <img src={assetUrl(user.avatar)} alt="" className="w-full h-full object-cover" />
             ) : (
               user?.name?.charAt(0).toUpperCase() || 'U'
             )}

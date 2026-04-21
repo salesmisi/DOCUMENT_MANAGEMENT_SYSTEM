@@ -37,18 +37,7 @@ export function FolderManagement() {
     parentId: null as string | null,
     department: 'Accounting'
   });
-  const visibleFolders = useMemo(() => {
-    if (!user) return [];
-    if (user.role === 'admin') return folders;
-
-    return folders.filter((folder) => {
-      const vis = (folder as any).visibility || 'private';
-      if (vis === 'admin-only') return false;
-      if (vis === 'department') return String(folder.department || '').trim().toLowerCase() === String(user.department || '').trim().toLowerCase();
-      if (vis === 'private') return folder.createdById === user.id;
-      return false;
-    });
-  }, [folders, user]);
+  const visibleFolders = useMemo(() => folders, [folders]);
 
   const rootFolders = visibleFolders.filter((f) => f.parentId === null);
   const getChildren = (parentId: string) => visibleFolders.filter((f) => f.parentId === parentId);

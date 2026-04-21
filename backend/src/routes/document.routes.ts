@@ -29,6 +29,7 @@ router.patch('/:id/approve', authenticate, documentController.approveDocument);
 router.patch('/:id/reject', authenticate, documentController.rejectDocument);
 router.patch('/:id/trash', authenticate, documentController.trashDocument);
 router.patch('/:id/restore', authenticate, documentController.restoreDocument);
+router.post('/:id/restore-hierarchy', authenticate, documentController.restoreDocumentHierarchy);
 router.patch('/:id/archive', authenticate, documentController.archiveDocument);
 router.delete('/:id', authenticate, documentController.permanentlyDeleteDocument);
 router.post('/:id/share', authenticate, documentController.shareDocument);

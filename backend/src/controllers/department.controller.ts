@@ -1,7 +1,7 @@
 import type { Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import pool from '../db';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 // List all departments
 export const listDepartments = async (_req: AuthRequest, res: Response) => {
@@ -62,7 +62,7 @@ export const createDepartment = async (req: AuthRequest, res: Response) => {
       }
     } else {
       // Create a new root folder for the department
-      folderId = uuidv4();
+      folderId = randomUUID();
 
       let createdBy = 'System';
       let createdById = null;
@@ -83,17 +83,16 @@ export const createDepartment = async (req: AuthRequest, res: Response) => {
       );
     }
 
-    // Insert the department and store folder_path (same as department name)
     const result = await pool.query(
-      'INSERT INTO departments (name, description, folder_path) VALUES ($1, $2, $3) RETURNING id, name, description, folder_path, created_at',
-      [cleanName, description || '', cleanName]
+      'INSERT INTO departments (name, description) VALUES ($1, $2) RETURNING id, name, description, created_at',
+      [cleanName, description || '']
     );
 
     const row = result.rows[0];
     const department = {
       id: row.id,
       name: row.name,
-      folderPath: row.folder_path,
+      folderPath: cleanName,
       createdAt: row.created_at,
       manager: 'TBD',
       description: row.description || '',

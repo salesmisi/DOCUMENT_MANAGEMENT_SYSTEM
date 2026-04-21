@@ -4,6 +4,7 @@ import { Activity, Download, Search, Filter, Clock, FileSpreadsheet, FileText, C
 import { useDocuments } from '../context/DocumentContext';
 import { AutocompleteSearch } from '../components/AutocompleteSearch';
 import { useNotifications } from '../context/NotificationContext';
+import { apiUrl } from '../utils/api';
 export function ActivityLog() {
   const { activityLogs, refreshLogs } = useDocuments();
   const { deleteNotificationsByType } = useNotifications();
@@ -28,7 +29,7 @@ export function ActivityLog() {
     try {
       const token = localStorage.getItem('dms_token');
       const endpoint = format === 'pdf' ? 'download-pdf' : 'download';
-      const res = await fetch(`http://localhost:5000/api/activity-logs/${endpoint}`, {
+      const res = await fetch(apiUrl(`/activity-logs/${endpoint}`), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error('Download failed');
@@ -42,7 +43,7 @@ export function ActivityLog() {
       URL.revokeObjectURL(url);
 
       // After successful download, archive the logs
-      await fetch('http://localhost:5000/api/activity-logs/download-and-archive', {
+      await fetch(apiUrl('/activity-logs/download-and-archive'), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });

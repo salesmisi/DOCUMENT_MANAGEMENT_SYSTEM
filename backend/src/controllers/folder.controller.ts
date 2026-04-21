@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import pool from '../db';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
 
 // List all folders
@@ -97,7 +97,7 @@ export const createFolder = async (req: AuthRequest, res: Response) => {
     if ((!parentId || parentId === null) && req.userRole === 'staff') {
       return res.status(403).json({ error: 'Staff are only allowed to create subfolders under existing folders' });
     }
-    const id = uuidv4();
+    const id = randomUUID();
     const createdAt = new Date();
     // Use authenticated user info if available
     const actorId = req.userId || createdById || null;

@@ -14,15 +14,25 @@ import { useNavigation } from '../App';
 import { useLanguage } from '../context/LanguageContext';
 import { UploadModal } from '../components/UploadModal';
 export function StaffDashboard() {
-  const { documents } = useDocuments();
+  const { documents, folders } = useDocuments();
   const { user } = useAuth();
   const { navigate } = useNavigation();
   const { t } = useLanguage();
   const [showUpload, setShowUpload] = useState(false);
-  // Include documents uploaded by user OR shared with user
-  const myDocs = documents.filter(
-    (d) => (d.uploadedById === user?.id || d.isShared) && d.status !== 'trashed'
-  );
+  const visibleFolderIds = new Set(folders.map((folder) => folder.id));
+  const myDocs = documents.filter((d) => {
+    if (d.status === 'trashed') return false;
+    if (d.uploadedById === user?.id || d.isShared) return true;
+
+    if (user?.role === 'staff') {
+      const hasVisibleFolderAccess = Boolean(d.folderId && visibleFolderIds.has(d.folderId));
+      if ((hasVisibleFolderAccess || d.department === user.department) && (Boolean(d.scannedFrom) || d.status === 'approved')) {
+        return true;
+      }
+    }
+
+    return false;
+  });
   const sharedWithMe = documents.filter(
     (d) => d.isShared && d.status !== 'trashed'
   );
@@ -83,7 +93,7 @@ export function StaffDashboard() {
               <p className="text-2xl font-bold text-gray-800">
                 {myDocs.length}
               </p>
-              <p className="text-xs text-gray-500">{t('myDocuments')}</p>
+              <p className="text-xs text-gray-500">Visible Documents</p>
             </div>
           </div>
         </div>
@@ -133,7 +143,7 @@ export function StaffDashboard() {
       {/* Recent Documents */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100">
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-800">My Recent Documents</h3>
+          <h3 className="font-semibold text-gray-800">Recent Visible Documents</h3>
           <button
             onClick={() => navigate('documents')}
             className="text-xs text-[#005F02] hover:underline">

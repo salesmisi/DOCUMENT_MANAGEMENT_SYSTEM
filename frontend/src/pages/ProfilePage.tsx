@@ -6,8 +6,9 @@ import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { User, Mail, Building, Shield, Camera, Save, Lock, CheckCircle, XCircle } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
+import { apiUrl, assetUrl } from '../utils/api';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = apiUrl('');
 
 // Password validation rules
 const PASSWORD_RULES = {
@@ -166,7 +167,7 @@ export function ProfilePage() {
             <div className="relative mb-4 group">
               <div className="w-32 h-32 rounded-full bg-primary/10 flex items-center justify-center text-4xl font-bold text-primary border-4 border-white shadow-lg overflow-hidden">
                 {user.avatar ? (
-                  <img src={`http://localhost:5000${user.avatar}`} alt="Avatar" className="w-full h-full object-cover" />
+                  <img src={assetUrl(user.avatar)} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
                   user.name.charAt(0).toUpperCase()
                 )}
