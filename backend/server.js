@@ -7,8 +7,21 @@ dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://dms-frontend-production-0d65.up.railway.app';
 const DATABASE_URL = process.env.DATABASE_URL;
+const normalizeOrigin = (origin) => String(origin || '').replace(/\/+$/, '').toLowerCase();
+const extraOrigins = String(process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedOrigins = new Set([
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'https://documentmanagementsystem-production-9d6e.up.railway.app',
+  'https://dms-frontend-production-0d65.up.railway.app',
+  FRONTEND_URL,
+  ...extraOrigins,
+].map(normalizeOrigin));
 
 if (!DATABASE_URL) {
   console.error('DATABASE_URL is required.');
@@ -21,7 +34,20 @@ const pool = new Pool({
 });
 
 app.use(cors({
-  origin: FRONTEND_URL,
+  origin: (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (allowedOrigins.has(normalizedOrigin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}. Allowed: ${Array.from(allowedOrigins).join(', ')}`));
+  },
   credentials: true,
 }));
 app.use(express.json());
@@ -68,7 +94,7 @@ async function start() {
 
     app.listen(PORT, () => {
       console.log(`Server listening on port ${PORT}`);
-      console.log(`Allowed frontend origin: ${FRONTEND_URL}`);
+      console.log(`Allowed frontend origins: ${Array.from(allowedOrigins).join(', ')}`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);
