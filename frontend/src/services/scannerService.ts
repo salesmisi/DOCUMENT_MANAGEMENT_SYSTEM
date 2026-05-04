@@ -1,14 +1,106 @@
 import { apiUrl } from '../utils/api';
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
+const DEFAULT_AGENT_URL = 'http://localhost:3001';
 
 const configuredAgentUrl = typeof import.meta !== 'undefined' && import.meta.env.VITE_AGENT_URL
   ? String(import.meta.env.VITE_AGENT_URL)
-  : 'http://localhost:3001';
+  : DEFAULT_AGENT_URL;
 
-const SCANNER_AGENT_BASE_URL = trimTrailingSlash(configuredAgentUrl || 'http://localhost:3001');
 const AGENT_STATUS_PATHS = ['/health', '/status'];
 const TOKEN_STORAGE_KEYS = ['token', 'dms_token'];
+let activeAgentBaseUrl: string | null = null;
+
+const normalizeAgentBaseUrl = (value: string) => {
+  const raw = String(value || '').trim();
+
+  if (!raw) {
+    return '';
+  }
+
+  try {
+    const parsed = new URL(raw);
+    return trimTrailingSlash(`${parsed.protocol}//${parsed.host}`);
+  } catch {
+    return trimTrailingSlash(raw);
+  }
+};
+
+const getAgentBaseCandidates = () => {
+  const unique = new Set<string>();
+  const candidates = [
+    configuredAgentUrl,
+    DEFAULT_AGENT_URL,
+    'http://127.0.0.1:3001',
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeAgentBaseUrl(candidate);
+
+    if (normalized) {
+      unique.add(normalized);
+    }
+  }
+
+  return Array.from(unique);
+};
+
+const probeAgent = async (baseUrl: string, path: string) => {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+
+  const payload = await response.json() as Partial<AgentStatusResponse & ScannerAgentHealth>;
+  return normalizeAgentStatus(payload);
+};
+
+const resolveAgentBaseUrl = async () => {
+  for (const baseUrl of getAgentBaseCandidates()) {
+    for (const path of AGENT_STATUS_PATHS) {
+      try {
+        const status = await probeAgent(baseUrl, path);
+
+        if (!status) {
+          continue;
+        }
+
+        activeAgentBaseUrl = baseUrl;
+        return status;
+      } catch {
+        // Continue probing other candidates.
+      }
+    }
+  }
+
+  return null;
+};
+
+const getResolvedAgentBaseUrl = async () => {
+  if (activeAgentBaseUrl) {
+    return activeAgentBaseUrl;
+  }
+
+  const status = await resolveAgentBaseUrl();
+
+  if (!status || !activeAgentBaseUrl) {
+    throw new Error('Local scanner agent is not reachable. Start the local agent on your computer.');
+  }
+
+  return activeAgentBaseUrl;
+};
 
 export interface ScannerAgentDevice {
   id: string;
@@ -242,48 +334,39 @@ const readErrorMessage = async (response: Response) => {
 };
 
 const requestJson = async <T>(path: string, init?: RequestInit) => {
-  const response = await fetch(`${SCANNER_AGENT_BASE_URL}${path}`, init);
+  const execute = async (baseUrl: string) => {
+    const response = await fetch(`${baseUrl}${path}`, init);
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
+    return response.json() as Promise<T>;
+  };
+
+  const currentBaseUrl = await getResolvedAgentBaseUrl();
+
+  try {
+    return await execute(currentBaseUrl);
+  } catch (error) {
+    // If the cached endpoint fails, clear and probe again once.
+    activeAgentBaseUrl = null;
+
+    const fallbackBaseUrl = await getResolvedAgentBaseUrl();
+    if (fallbackBaseUrl === currentBaseUrl) {
+      throw error;
+    }
+
+    return execute(fallbackBaseUrl);
   }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json() as Promise<T>;
 };
 
 export async function detectAgent(): Promise<AgentStatusResponse | null> {
-  try {
-    for (const path of AGENT_STATUS_PATHS) {
-      const response = await fetch(`${SCANNER_AGENT_BASE_URL}${path}`, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        continue;
-      }
-
-      const contentType = response.headers.get('content-type') || '';
-
-      if (!contentType.includes('application/json')) {
-        continue;
-      }
-
-      const payload = await response.json() as Partial<AgentStatusResponse & ScannerAgentHealth>;
-
-      return normalizeAgentStatus(payload);
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
+  return resolveAgentBaseUrl();
 }
 
 export async function checkAgent() {
@@ -413,7 +496,8 @@ export async function scanWithPreview(payload: ScanPreviewPayload = {}) {
 }
 
 export async function getPreview(sessionId: string): Promise<PreviewResult> {
-  const response = await fetch(`${SCANNER_AGENT_BASE_URL}/scan/${sessionId}/preview`, {
+  const agentBaseUrl = await getResolvedAgentBaseUrl();
+  const response = await fetch(`${agentBaseUrl}/scan/${sessionId}/preview`, {
     headers: buildRequiredAuthHeaders(),
   });
 
@@ -447,7 +531,8 @@ export async function getPreview(sessionId: string): Promise<PreviewResult> {
 }
 
 export async function getPreviewBlob(sessionId: string) {
-  const response = await fetch(`${SCANNER_AGENT_BASE_URL}/scan/${sessionId}/preview`, {
+  const agentBaseUrl = await getResolvedAgentBaseUrl();
+  const response = await fetch(`${agentBaseUrl}/scan/${sessionId}/preview`, {
     headers: buildRequiredAuthHeaders(),
   });
 
@@ -459,7 +544,8 @@ export async function getPreviewBlob(sessionId: string) {
 }
 
 export async function discardScan(sessionId: string) {
-  const response = await fetch(`${SCANNER_AGENT_BASE_URL}/scan/${sessionId}`, {
+  const agentBaseUrl = await getResolvedAgentBaseUrl();
+  const response = await fetch(`${agentBaseUrl}/scan/${sessionId}`, {
     method: 'DELETE',
     headers: buildRequiredAuthHeaders(),
   });
