@@ -11,6 +11,7 @@ const execFileAsync = promisify(execFile);
 const app = express();
 const PORT = Number(process.env.PORT || 3001);
 const SCANS_DIR = path.resolve(process.env.SCANS_DIR || path.join(__dirname, 'scans'));
+const normalizeOrigin = (origin) => String(origin || '').replace(/\/+$/, '');
 const ALLOWED_ORIGINS = new Set([
   'http://localhost:5173',
   'http://127.0.0.1:5173',
@@ -32,7 +33,7 @@ fs.mkdirSync(SCANS_DIR, { recursive: true });
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || ALLOWED_ORIGINS.has(origin)) {
+    if (!origin || ALLOWED_ORIGINS.has(normalizeOrigin(origin))) {
       callback(null, true);
       return;
     }
@@ -45,14 +46,12 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
-// Preflight and Private Network Access handling - must run before CORS middleware
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  const isAllowedOrigin = !origin || ALLOWED_ORIGINS.has(String(origin).replace(/\/+$/, ''));
+  const allowedOrigin = origin && ALLOWED_ORIGINS.has(normalizeOrigin(origin));
 
-  // Handle preflight explicitly to ensure Access-Control-Allow-Private-Network is present
   if (req.method === 'OPTIONS') {
-    if (origin && isAllowedOrigin) {
+    if (origin && allowedOrigin) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
     }
@@ -69,8 +68,7 @@ app.use((req, res, next) => {
     return;
   }
 
-  // For non-preflight requests, attach minimal CORS headers if origin is allowed
-  if (origin && isAllowedOrigin) {
+  if (origin && allowedOrigin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -79,7 +77,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Keep cors middleware for other behaviors (helps with OPTIONS for some clients)
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 app.use(express.json());
