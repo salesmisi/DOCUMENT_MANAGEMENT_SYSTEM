@@ -379,6 +379,11 @@ async function listScannersFresh() {
         discoveredScanners.push(scanner);
       }
     } catch (error) {
+      if (driver === 'escl') {
+        // ESCL is optional; skip noisy failures so the agent stays usable for USB/WIA devices.
+        continue;
+      }
+
       logError('Scanner listing command failed', error, { args, driver });
     }
   }
