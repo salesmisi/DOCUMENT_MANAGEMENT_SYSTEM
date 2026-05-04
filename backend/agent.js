@@ -13,7 +13,9 @@ const PORT = Number(process.env.PORT || 3001);
 const SCANS_DIR = path.resolve(process.env.SCANS_DIR || path.join(__dirname, 'scans'));
 const ALLOWED_ORIGINS = new Set([
   'http://localhost:5173',
+  'http://127.0.0.1:5173',
   'https://documentmanagementsystem-production-9d6e.up.railway.app',
+  'https://dms-frontend-production-0d65.up.railway.app',
 ]);
 const previewSessions = new Map();
 const SCANNER_CACHE_TTL_MS = Number(process.env.SCANNER_CACHE_TTL_MS || 2 * 60 * 1000);

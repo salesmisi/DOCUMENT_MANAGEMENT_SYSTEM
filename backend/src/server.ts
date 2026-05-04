@@ -9,22 +9,36 @@ import fs from 'fs';
 dotenv.config();
 
 const app = express();
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://documentmanagementsystem-production-9d6e.up.railway.app';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://dms-frontend-production-0d65.up.railway.app';
+const normalizeOrigin = (origin: string) => origin.replace(/\/+$/, '').toLowerCase();
+const extraOrigins = String(process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 const allowedOrigins = new Set([
   'http://localhost:5173',
+  'http://127.0.0.1:5173',
   'https://documentmanagementsystem-production-9d6e.up.railway.app',
+  'https://dms-frontend-production-0d65.up.railway.app',
   FRONTEND_URL,
-]);
+  ...extraOrigins,
+].map(normalizeOrigin));
 
 // Middleware
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.has(origin)) {
+    if (!origin) {
       callback(null, true);
       return;
     }
 
-    callback(new Error(`CORS blocked for origin: ${origin}`));
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (allowedOrigins.has(normalizedOrigin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}. Allowed: ${Array.from(allowedOrigins).join(', ')}`));
   },
   credentials: true,
 }));
