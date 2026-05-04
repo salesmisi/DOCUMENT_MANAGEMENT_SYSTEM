@@ -13,6 +13,8 @@ export interface Document {
   department: string;
   reference: string;
   date: string;
+  createdAt?: string;
+  uploadedAt?: string;
   uploadedBy: string;
   uploadedById: string;
   status: 'pending' | 'approved' | 'rejected' | 'archived' | 'trashed';
@@ -221,6 +223,8 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
     department: d.department || '',
     reference: d.reference || '',
     date: d.date ? (typeof d.date === 'string' ? d.date.split('T')[0] : d.date) : '',
+    createdAt: d.created_at ?? d.createdAt ?? undefined,
+    uploadedAt: d.uploaded_at ?? d.uploadedAt ?? d.created_at ?? d.createdAt ?? undefined,
     uploadedBy: d.uploaded_by ?? d.uploadedBy ?? '',
     uploadedById: d.uploaded_by_id ?? d.uploadedById ?? '',
     status: d.status || 'pending',
@@ -385,6 +389,8 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
   const addDocument = (doc: Omit<Document, 'id'> & { id?: string }): Document => {
     const newDoc: Document = {
       ...doc,
+      createdAt: doc.createdAt || new Date().toISOString(),
+      uploadedAt: doc.uploadedAt || doc.createdAt || new Date().toISOString(),
       id: doc.id || `doc-${Date.now()}`
     };
     setDocuments((prev) => [newDoc, ...prev]);

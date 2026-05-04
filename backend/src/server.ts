@@ -9,9 +9,25 @@ import fs from 'fs';
 dotenv.config();
 
 const app = express();
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://documentmanagementsystem-production-9d6e.up.railway.app';
+const allowedOrigins = new Set([
+  'http://localhost:5173',
+  'https://documentmanagementsystem-production-9d6e.up.railway.app',
+  FRONTEND_URL,
+]);
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 
 // Ensure uploads directory exists
@@ -23,7 +39,15 @@ if (!fs.existsSync(uploadsDir)) {
 // Serve uploaded files statically
 app.use('/uploads', express.static(uploadsDir));
 
-app.get('/', (req, res) => res.send('API running'));
+const frontendDistCandidates = [
+  path.resolve(process.cwd(), 'dist'),
+  path.resolve(process.cwd(), 'frontend', 'dist'),
+  path.resolve(process.cwd(), '..', 'frontend', 'dist'),
+  path.resolve(__dirname, '..', '..', 'frontend', 'dist'),
+];
+const frontendDistDir = frontendDistCandidates.find((candidate) => fs.existsSync(candidate));
+
+app.get('/api', (_req, res) => res.send('API is running'));
 
 // Auto-migration: ensure schema is up to date
 async function runMigrations() {
@@ -150,6 +174,19 @@ async function runMigrations() {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS notification_preferences (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        browser_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        approvals_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await safeQuery(`CREATE INDEX IF NOT EXISTS idx_notif_prefs_user ON notification_preferences(user_id)`, 'notification_preferences user index');
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS document_shared_users (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -173,6 +210,7 @@ async function runMigrations() {
     // Add missing columns to documents table
     await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_data BYTEA`, 'documents.file_data');
     await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS department VARCHAR(100)`, 'documents.department');
+    await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS department_id UUID REFERENCES departments(id) ON DELETE SET NULL`, 'documents.department_id');
     await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS approved_by VARCHAR(150)`, 'documents.approved_by');
     await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS rejection_reason TEXT`, 'documents.rejection_reason');
     await safeQuery(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`, 'documents.tags');
@@ -365,6 +403,9 @@ import settingsRoutes from './routes/settings.routes';
 import scanWatcher from './services/scanWatcher.service';
 import cleanupService from './services/cleanup.service';
 
+// Compatibility aliases for deployments that call root paths instead of /api/*.
+app.use('/auth', authRoutes);
+
 app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/folders', folderRoutes);
@@ -377,9 +418,65 @@ app.use('/api/scanner', scannerRoutes);
 app.use('/api/cleanup', cleanupRoutes);
 app.use('/api/settings', settingsRoutes);
 
+app.get('/api/scan-health', async (_req, res) => {
+  const agentUrl = process.env.AGENT_URL || 'http://localhost:3001';
+
+  try {
+    const fetch = require('node-fetch') as any;
+    const response = await fetch(`${agentUrl}/health`);
+
+    if (!response.ok) {
+      return res.json({
+        agent: {
+          status: 'offline',
+          ok: false,
+          naps2Installed: false,
+          backendUrl: agentUrl,
+        },
+        error: 'Scanner agent returned a non-success response',
+      });
+    }
+
+    const agent = await response.json();
+
+    return res.json({ agent });
+  } catch (error: any) {
+    return res.json({
+      agent: {
+        status: 'offline',
+        ok: false,
+        naps2Installed: false,
+        backendUrl: agentUrl,
+      },
+      error: 'Cannot reach scanner agent',
+      details: error?.message || 'Unknown error',
+    });
+  }
+});
+
+if (frontendDistDir) {
+  app.use(express.static(frontendDistDir, { index: false }));
+
+  app.get('/{*spa}', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/auth')) {
+      next();
+      return;
+    }
+
+    res.sendFile(path.join(frontendDistDir, 'index.html'));
+  });
+} else {
+  app.get('/', (_req, res) => res.send('API is running'));
+}
+
 const PORT = process.env.PORT || 5000;
 
-connectDB().then(async () => {
+connectDB().then(async (connected) => {
+  if (!connected) {
+    console.error('Server startup aborted: database connection failed.');
+    process.exit(1);
+  }
+
   await runMigrations();
   await ensureDefaultAdmin();
   // Start the cleanup service

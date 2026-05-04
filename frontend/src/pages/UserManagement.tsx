@@ -250,7 +250,7 @@ export function UserManagement() {
     setShowAddUser(false);
     if (result?.recoveryKey) {
       setRecoveryKeyPopup({
-        title: `User created successfully. Please save this recovery key for ${result.user?.name || newUser.name}:`,
+        title: `User created successfully. Please save this recovery key:`,
         key: result.recoveryKey,
       });
     }
@@ -277,7 +277,7 @@ export function UserManagement() {
 
     if (result.recoveryKey) {
       setRecoveryKeyPopup({
-        title: `Recovery key regenerated. Please save and share securely for ${name}:`,
+        title: `Recovery key regenerated. Please save this recovery key:`,
         key: result.recoveryKey,
       });
     }
@@ -331,6 +331,16 @@ export function UserManagement() {
   };
 
   const handleDeleteUser = async (id: string, name: string) => {
+    const targetUser = users.find((u) => u.id === id);
+    const isSystemAdministrator =
+      targetUser?.email?.toLowerCase() === 'admin@system.com' ||
+      targetUser?.name?.toLowerCase() === 'system administrator';
+
+    if (isSystemAdministrator) {
+      alert('System Administrator account cannot be deleted.');
+      return;
+    }
+
     setDeleteConfirm({ id, name });
   };
   const confirmDeleteUser = async () => {
@@ -510,7 +520,7 @@ export function UserManagement() {
                         >
                           <Shield size={15} />
                         </button>
-                        {u.id !== 'user-1' &&
+                        {u.email?.toLowerCase() !== 'admin@system.com' &&
                     <button
                       onClick={() => handleDeleteUser(u.id, u.name)}
                       className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
@@ -899,7 +909,7 @@ export function UserManagement() {
         </div>
       }
 
-      {/* Delete User Confirmation Modal */}
+      {/* Recovery Key Popup */}
       {recoveryKeyPopup && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">

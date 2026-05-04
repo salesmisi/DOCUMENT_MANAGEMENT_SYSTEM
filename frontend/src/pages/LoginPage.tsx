@@ -15,13 +15,13 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [identifier, setIdentifier] = useState('');
-  const [recoveryKey, setRecoveryKey] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [showRecoveryKey, setShowRecoveryKey] = useState(false);
+  const [forgotIdentifier, setForgotIdentifier] = useState('');
+  const [forgotRecoveryKey, setForgotRecoveryKey] = useState('');
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+  const [showForgotRecoveryKey, setShowForgotRecoveryKey] = useState(false);
+  const [showForgotNewPassword, setShowForgotNewPassword] = useState(false);
+  const [showForgotConfirmPassword, setShowForgotConfirmPassword] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -47,17 +47,17 @@ export function LoginPage() {
     setLoading(false);
   };
 
-  const handleForgotPassword = async (e: React.FormEvent) => {
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
 
-    if (!identifier || !recoveryKey || !newPassword || !confirmPassword) {
+    if (!forgotIdentifier || !forgotRecoveryKey || !forgotNewPassword || !forgotConfirmPassword) {
       setError('Please complete all fields.');
       return;
     }
 
-    if (newPassword !== confirmPassword) {
+    if (forgotNewPassword !== forgotConfirmPassword) {
       setError('Passwords do not match.');
       return;
     }
@@ -67,7 +67,11 @@ export function LoginPage() {
       const res = await fetch(apiUrl('/auth/forgot-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier, recoveryKey, newPassword }),
+        body: JSON.stringify({
+          identifier: forgotIdentifier,
+          recoveryKey: forgotRecoveryKey,
+          newPassword: forgotNewPassword,
+        }),
       });
 
       const data = await res.json();
@@ -76,13 +80,13 @@ export function LoginPage() {
         return;
       }
 
-      setSuccess('Password updated successfully. You can now sign in.');
+      setSuccess(data?.message || 'Password updated. You can now sign in.');
       setMode('login');
-      setEmail(identifier);
-      setIdentifier('');
-      setRecoveryKey('');
-      setNewPassword('');
-      setConfirmPassword('');
+      setEmail(forgotIdentifier);
+      setForgotIdentifier('');
+      setForgotRecoveryKey('');
+      setForgotNewPassword('');
+      setForgotConfirmPassword('');
     } catch {
       setError('Invalid recovery key or user information');
     } finally {
@@ -137,7 +141,7 @@ export function LoginPage() {
           <div className="bg-white/90 rounded-2xl shadow-2xl p-8 border border-[#C0B87A]/30">
 
             <h2 className="text-xl font-semibold text-gray-800 mb-6 text-center">
-              {t('signIn')}
+              {mode === 'login' ? t('signIn') : 'Forgot Password'}
             </h2>
 
             {error && (
@@ -208,7 +212,7 @@ export function LoginPage() {
                     setMode('forgot');
                     setError('');
                     setSuccess('');
-                    setIdentifier(email);
+                    setForgotIdentifier(email);
                   }}
                   className="w-full text-right text-sm text-[#005F02] hover:underline"
                 >
@@ -229,73 +233,94 @@ export function LoginPage() {
 
               </form>
             ) : (
-              <form onSubmit={handleForgotPassword} className="space-y-4">
-                <h3 className="text-center text-base font-semibold text-gray-800">Change Password</h3>
-                <p className="text-center text-sm text-gray-500">Use your recovery key to reset your password.</p>
-
+              <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">Username or Email</label>
-                  <input
-                    type="text"
-                    value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="Enter username or email"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43]"
-                  />
+                  <div className="relative">
+                    <Mail
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type="text"
+                      value={forgotIdentifier}
+                      onChange={(e) => setForgotIdentifier(e.target.value)}
+                      placeholder="Enter username or email"
+                      className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] focus:border-transparent"
+                    />
+                  </div>
                 </div>
 
-                <div className="relative">
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">Recovery Key</label>
-                  <input
-                    type={showRecoveryKey ? 'text' : 'password'}
-                    value={recoveryKey}
-                    onChange={(e) => setRecoveryKey(e.target.value)}
-                    placeholder="Enter recovery key"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowRecoveryKey(!showRecoveryKey)}
-                    className="absolute right-3 top-[38px] text-gray-400 hover:text-gray-600"
-                  >
-                    {showRecoveryKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
+                  <div className="relative">
+                    <Lock
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type={showForgotRecoveryKey ? 'text' : 'password'}
+                      value={forgotRecoveryKey}
+                      onChange={(e) => setForgotRecoveryKey(e.target.value)}
+                      placeholder="Enter recovery key"
+                      className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] focus:border-transparent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotRecoveryKey(!showForgotRecoveryKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showForgotRecoveryKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
 
-                <div className="relative">
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">New Password</label>
-                  <input
-                    type={showNewPassword ? 'text' : 'password'}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Enter new password"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPassword(!showNewPassword)}
-                    className="absolute right-3 top-[38px] text-gray-400 hover:text-gray-600"
-                  >
-                    {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
+                  <div className="relative">
+                    <Lock
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type={showForgotNewPassword ? 'text' : 'password'}
+                      value={forgotNewPassword}
+                      onChange={(e) => setForgotNewPassword(e.target.value)}
+                      placeholder="Enter new password"
+                      className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] focus:border-transparent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotNewPassword(!showForgotNewPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showForgotNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
 
-                <div className="relative">
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Confirm Password</label>
-                  <input
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Enter new password again"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-[38px] text-gray-400 hover:text-gray-600"
-                  >
-                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Confirm New Password</label>
+                  <div className="relative">
+                    <Lock
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type={showForgotConfirmPassword ? 'text' : 'password'}
+                      value={forgotConfirmPassword}
+                      onChange={(e) => setForgotConfirmPassword(e.target.value)}
+                      placeholder="Enter new password again"
+                      className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#427A43] focus:border-transparent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotConfirmPassword(!showForgotConfirmPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showForgotConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
 
                 <button
@@ -306,7 +331,7 @@ export function LoginPage() {
                     backgroundColor: loading ? '#427A43' : '#005F02'
                   }}
                 >
-                  {loading ? 'Resetting...' : 'Change Password'}
+                  {loading ? 'Processing...' : 'Reset Password'}
                 </button>
 
                 <button
@@ -316,7 +341,7 @@ export function LoginPage() {
                     setError('');
                     setSuccess('');
                   }}
-                  className="w-full py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+                  className="w-full py-2 rounded-lg border border-gray-300 text-gray-700 text-sm hover:bg-gray-50"
                 >
                   Back to Sign In
                 </button>

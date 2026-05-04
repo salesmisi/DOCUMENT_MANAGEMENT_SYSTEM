@@ -14,12 +14,17 @@ const ARCHIVE_TYPES = ['zip'];
 const DocumentInfoPanel: React.FC<{ doc: any }> = ({ doc }) => {
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return 'N/A';
-    return new Date(dateStr).toLocaleDateString('en-US', {
+
+    const parsed = new Date(dateStr);
+    if (Number.isNaN(parsed.getTime())) return 'N/A';
+
+    return parsed.toLocaleString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      second: '2-digit'
     });
   };
 

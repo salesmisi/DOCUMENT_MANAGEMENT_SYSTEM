@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import RequestDeleteModal from '../components/RequestDeleteModal';
 import {
   Home,
@@ -355,12 +355,13 @@ export function DocumentsPage() {
 
   // Role-based folder visibility
   const visibleFolders = useMemo(() => folders, [folders]);
+  const visibleFolderIds = useMemo(() => new Set(visibleFolders.map(f => f.id)), [visibleFolders]);
 
   const rootFolders = visibleFolders.filter(f => f.parentId === null);
   const getChildren = (parentId: string) => visibleFolders.filter(f => f.parentId === parentId);
 
   // Document access check
-  const hasDocumentAccess = (doc: Document) => {
+  const hasDocumentAccess = useCallback((doc: Document) => {
     if (!user) return false;
     if (user.role === 'admin') return true;
     // Check if user uploaded the document (using uploadedById not uploadedBy)
@@ -368,14 +369,19 @@ export function DocumentsPage() {
     // Check if document is shared with the user
     if (doc.isShared) return true;
     if (user.role === 'manager' && doc.department === user.department) return true;
+    if (user.role === 'manager' && doc.folderId && visibleFolderIds.has(doc.folderId)) return true;
 
     // Staff access logic
-    if (user.role === 'staff' && doc.department === user.department) {
-      // Staff can see scanned documents OR approved documents from their own department only
-      if (doc.scannedFrom || doc.status === 'approved') return true;
+    if (user.role === 'staff') {
+      const hasVisibleFolderAccess = Boolean(doc.folderId && visibleFolderIds.has(doc.folderId));
+      const isDepartmentDocument = doc.department === user.department;
+
+      if ((hasVisibleFolderAccess || isDepartmentDocument) && (doc.scannedFrom || doc.status === 'approved')) {
+        return true;
+      }
     }
     return false;
-  };
+  }, [user, visibleFolderIds]);
 
   // Filter documents
   const filtered = useMemo(() => {
@@ -428,7 +434,7 @@ export function DocumentsPage() {
     }
 
     return result;
-  }, [activeDocuments, selectedFolderId, search, searchSelectedDocId, activeTab, user]);
+  }, [activeDocuments, selectedFolderId, search, searchSelectedDocId, activeTab, hasDocumentAccess]);
 
   // Quick access folders (top 8 root folders)
   const quickAccessFolders = useMemo(() => {

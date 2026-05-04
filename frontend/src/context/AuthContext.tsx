@@ -1,5 +1,5 @@
 import React, { useState, createContext, useContext, ReactNode, useEffect } from 'react';
-import { apiUrl } from '../utils/api';
+import { apiUrl, assetUrl } from '../utils/api';
 
 const API_URL = apiUrl('');
 
@@ -51,6 +51,17 @@ function authHeaders(token: string | null) {
   };
 }
 
+function normalizeUser(user: User | null): User | null {
+  if (!user) {
+    return null;
+  }
+
+  return {
+    ...user,
+    avatar: user.avatar ? assetUrl(user.avatar) : undefined,
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -63,8 +74,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const storedUser = localStorage.getItem(CURRENT_USER_KEY);
 
     if (storedToken && storedUser) {
+      const parsedUser = normalizeUser(JSON.parse(storedUser) as User);
       setToken(storedToken);
-      setUser(JSON.parse(storedUser));
+      setUser(parsedUser);
+      if (parsedUser) {
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(parsedUser));
+      }
     }
     setLoading(false);
   }, []);
@@ -99,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!current || !token) return;
       const res = await fetch(`${API_URL}/users/${current.id}`, { headers: authHeaders(token) });
       if (!res.ok) return;
-      const updated = await res.json();
+      const updated = normalizeUser(await res.json() as User);
       setUser(updated);
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updated));
       // Notify other contexts to refresh data for the updated user
@@ -121,10 +136,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!res.ok) return false;
 
       const data = await res.json();
+      const normalizedUser = normalizeUser(data.user as User);
       setToken(data.token);
-      setUser(data.user);
+      setUser(normalizedUser);
       localStorage.setItem(TOKEN_KEY, data.token);
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(data.user));
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(normalizedUser));
       // Notify DocumentContext to re-fetch data from backend
       window.dispatchEvent(new Event('dms-auth-change'));
 
@@ -138,11 +154,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           },
           body: JSON.stringify({
             action: 'USER_LOGIN',
-            target: data.user.name,
+            target: normalizedUser?.name,
             targetType: 'system',
-            userName: data.user.name,
-            userRole: data.user.role,
-            details: `${data.user.name} logged in`,
+            userName: normalizedUser?.name,
+            userRole: normalizedUser?.role,
+            details: `${normalizedUser?.name} logged in`,
           }),
         });
       } catch (logErr) {
@@ -205,15 +221,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: err.error || 'Failed to create user' };
       }
 
-      const newUser = await res.json();
-      if (newUser?.user) {
-        setUsers((prev) => [newUser.user, ...prev]);
+      const payload = await res.json();
+      const createdUser = normalizeUser(payload?.user as User);
+      if (createdUser) {
+        setUsers((prev) => [createdUser, ...prev]);
       }
-      return {
-        success: true,
-        user: newUser?.user,
-        recoveryKey: newUser?.recoveryKey,
-      };
+      return { success: true, user: createdUser || undefined, recoveryKey: payload?.recoveryKey };
     } catch (err) {
       console.error('addUser error:', err);
       return { error: 'Network error — could not create user' };
@@ -231,7 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!res.ok) return;
 
-      const updated = await res.json();
+      const updated = normalizeUser(await res.json() as User);
       setUsers((prev) => prev.map((u) => (u.id === id ? updated : u)));
 
       if (user?.id === id) {
