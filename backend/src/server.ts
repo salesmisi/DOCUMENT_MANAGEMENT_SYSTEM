@@ -9,10 +9,10 @@ import fs from 'fs';
 dotenv.config();
 
 const app = express();
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://documentmanagementsystem-production-9d6e.up.railway.app';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://dms-frontend-production-0d65.up.railway.app';
 const allowedOrigins = new Set([
   'http://localhost:5173',
-  'https://documentmanagementsystem-production-9d6e.up.railway.app',
+  'https://dms-frontend-production-0d65.up.railway.app',
   FRONTEND_URL,
 ]);
 
