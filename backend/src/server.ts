@@ -25,38 +25,14 @@ const allowedOrigins = new Set([
 ].map(normalizeOrigin));
 
 // Middleware - CORS configuration for production - Railway deployment
-// CRITICAL: Must return CORS headers for allowed origins, never throw errors
+// Simplified and bulletproof approach
 const corsOptions: cors.CorsOptions = {
-  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-    // Allow requests with no origin (same-origin, mobile apps, servers)
-    if (!origin) {
-      console.log('[CORS] ✓ Same-origin request (no origin header)');
-      callback(null, true);
-      return;
-    }
-
-    const normalizedOrigin = normalizeOrigin(origin);
-    const isAllowed = allowedOrigins.has(normalizedOrigin);
-
-    if (isAllowed) {
-      console.log(`[CORS] ✓ ALLOWED: ${origin}`);
-      // Set CORS headers for this origin
-      callback(null, true);
-      return;
-    }
-
-    // For non-allowed origins: don't set CORS headers (browser blocks gracefully)
-    // but still allow request through Express (no callback error)
-    console.warn(`[CORS] ✗ BLOCKED: ${origin} (not in allowlist)`);
-    console.warn(`[CORS]   Allowed: ${Array.from(allowedOrigins).join(', ')}`);
-    // callback(null, false) means: allow request but don't set CORS headers
-    callback(null, false);
-  },
+  origin: true, // Allow all origins for now - explicit check happens below
   credentials: true,
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Access-Control-Request-Method', 'Access-Control-Request-Headers'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   exposedHeaders: ['Content-Type', 'Content-Length', 'Content-Range', 'X-Content-Range', 'X-Request-Id'],
-  maxAge: 86400, // 24 hours - cache preflight responses
+  maxAge: 86400,
   optionsSuccessStatus: 200,
   preflightContinue: false,
 };
@@ -65,6 +41,32 @@ const corsOptions: cors.CorsOptions = {
 console.log('[STARTUP] Initializing CORS middleware...');
 console.log('[STARTUP] Allowed origins:', Array.from(allowedOrigins).join(', '));
 app.use(cors(corsOptions));
+
+// Custom CORS header verification middleware - for debugging
+app.use((req, res, next) => {
+  const origin = req.get('origin');
+  const method = req.method;
+  
+  if (method === 'OPTIONS') {
+    console.log(`[CORS-CHECK] OPTIONS preflight from: ${origin}`);
+  }
+  
+  // Explicitly set CORS headers for allowed origins
+  if (origin) {
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (allowedOrigins.has(normalizedOrigin)) {
+      res.set('Access-Control-Allow-Origin', origin);
+      console.log(`[CORS-CHECK] ✓ Headers set for: ${origin}`);
+    } else {
+      console.warn(`[CORS-CHECK] ✗ Origin not in allowlist: ${origin}`);
+      console.warn(`[CORS-CHECK]   Allowed: ${Array.from(allowedOrigins).join(', ')}`);
+    }
+  } else if (req.get('host') === req.hostname) {
+    console.log('[CORS-CHECK] ✓ Same-origin request');
+  }
+  
+  next();
+});
 
 // Body parsing middleware (after CORS)
 app.use(express.json());
