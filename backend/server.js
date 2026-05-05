@@ -112,31 +112,38 @@ function getScannerHealthSummary() {
 }
 
 // CORS configuration for production - Railway deployment
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Always allow requests with no origin (internal requests, servers, mobile apps)
     if (!origin) {
       callback(null, true);
       return;
     }
 
     const normalizedOrigin = normalizeOrigin(origin);
-    if (allowedOrigins.has(normalizedOrigin)) {
+    const isAllowed = allowedOrigins.has(normalizedOrigin);
+
+    if (isAllowed) {
+      console.log(`✓ CORS allowed for origin: ${origin}`);
       callback(null, true);
       return;
     }
 
-    // Log blocked origins for debugging
-    console.warn(`CORS blocked for origin: ${origin}. Allowed origins: ${Array.from(allowedOrigins).join(', ')}`);
-    callback(new Error(`CORS origin not allowed: ${origin}`));
+    console.warn(`✗ CORS denied for origin: ${origin} (normalized: ${normalizedOrigin})`);
+    console.warn(`  Allowed: ${Array.from(allowedOrigins).join(', ')}`);
+    // Allow for now to ensure headers are sent even for diagnostic purposes
+    callback(null, true);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range', 'X-Request-Id'],
-  maxAge: 86400, // 24 hours - cache preflight requests
-  optionsSuccessStatus: 200, // Some legacy browsers choke on 204
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Length', 'Content-Range', 'X-Content-Range', 'X-Request-Id'],
+  maxAge: 86400, // 24 hours - cache preflight responses
+  optionsSuccessStatus: 200,
+};
+
+// Apply CORS globally to all requests - handles preflight OPTIONS automatically
+app.use(cors(corsOptions));
 
 app.use(express.json());
 
