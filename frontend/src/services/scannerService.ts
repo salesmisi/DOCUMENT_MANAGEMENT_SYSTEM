@@ -206,12 +206,6 @@ export interface AgentStatusResponse {
   [key: string]: unknown;
 }
 
-interface AgentDeviceStatusResponse {
-  ready?: boolean;
-  isRefreshing?: boolean;
-  [key: string]: unknown;
-}
-
 const normalizeAgentStatus = (payload: Partial<AgentStatusResponse & ScannerAgentHealth>) => ({
   ...payload,
   running: Boolean(payload.running ?? payload.ok ?? payload.status === 'ok'),
@@ -233,15 +227,6 @@ const getRequiredToken = () => {
   return token;
 };
 
-const buildHeaders = (includeAuth = false, includeJson = false) => {
-  const token = getToken();
-
-  return {
-    ...(includeJson ? { 'Content-Type': 'application/json' } : {}),
-    ...(includeAuth && token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-};
-
 const buildRequiredAuthHeaders = (includeJson = false) => {
   const token = getRequiredToken();
 
@@ -250,7 +235,6 @@ const buildRequiredAuthHeaders = (includeJson = false) => {
     Authorization: `Bearer ${token}`,
   };
 };
-
 const normalizeColorMode = (color?: string) => {
   const normalizedColor = String(color || 'color').trim().toLowerCase();
 
@@ -316,41 +300,27 @@ export async function getAgentHealth() {
     } satisfies ScannerAgentHealth;
   }
 
-  if (!isScannerAgentReachableFromBrowser()) {
-    const response = await fetch(apiUrl('/scan-health'), {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-    });
+  const response = await fetch(apiUrl('/scan-health'), {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+  });
 
-    if (!response.ok) {
-      return {
-        status: 'offline',
-        ok: false,
-        naps2Installed: false,
-      } satisfies ScannerAgentHealth;
-    }
-
-    const payload = await response.json() as { agent?: Partial<ScannerAgentHealth & AgentStatusResponse> };
-    const agent = payload.agent || {};
-
+  if (!response.ok) {
     return {
-      status: String(agent.status || (agent.ok || agent.running ? 'ok' : 'offline')),
-      ok: Boolean(agent.ok ?? agent.running ?? agent.status === 'ok'),
-      naps2Installed: Boolean(agent.naps2Installed ?? agent.naps2),
-      backendUrl: agent.backendUrl,
+      status: 'offline',
+      ok: false,
+      naps2Installed: false,
     } satisfies ScannerAgentHealth;
   }
 
-  const agent = await detectAgent();
-
-  if (!agent) {
-    throw new Error('Local scanner agent is not reachable.');
-  }
+  const payload = await response.json() as { agent?: Partial<ScannerAgentHealth & AgentStatusResponse> };
+  const agent = payload.agent || {};
 
   return {
-    status: agent.running ? 'ok' : 'offline',
-    ok: agent.running,
-    naps2Installed: agent.naps2,
+    status: String(agent.status || (agent.ok || agent.running ? 'ok' : 'offline')),
+    ok: Boolean(agent.ok ?? agent.running ?? agent.status === 'ok'),
+    naps2Installed: Boolean(agent.naps2Installed ?? agent.naps2),
+    backendUrl: agent.backendUrl,
   } satisfies ScannerAgentHealth;
 }
 
@@ -429,11 +399,13 @@ export async function detectAgent(): Promise<AgentStatusResponse | null> {
     return null;
   }
 
-  if (!isScannerAgentReachableFromBrowser()) {
-    return null;
-  }
-
-  return resolveAgentBaseUrl();
+  const health = await getAgentHealth();
+  return health.ok || health.naps2Installed
+    ? {
+        running: Boolean(health.ok),
+        naps2: Boolean(health.naps2Installed),
+      }
+    : null;
 }
 
 export async function checkAgent() {
@@ -442,9 +414,17 @@ export async function checkAgent() {
 }
 
 export async function getScanners() {
-  const data = await requestJson<ScannerAgentDevice[] | { scanners?: ScannerAgentDevice[] }>('/scanners', {
-    headers: buildHeaders(),
+  const response = await fetch(apiUrl('/scanners'), {
+    headers: {
+      Accept: 'application/json',
+    },
   });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const data = await response.json() as ScannerAgentDevice[] | { scanners?: ScannerAgentDevice[] };
 
   if (Array.isArray(data)) {
     return data.map(normalizeScannerDevice).filter((device) => Boolean(device.id && device.name));
@@ -454,9 +434,17 @@ export async function getScanners() {
 }
 
 export async function getPrinters() {
-  const data = await requestJson<ScannerAgentPrinter[] | { printers?: ScannerAgentPrinter[] }>('/printers', {
-    headers: buildHeaders(),
+  const response = await fetch(apiUrl('/scanners'), {
+    headers: {
+      Accept: 'application/json',
+    },
   });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const data = await response.json() as { printers?: ScannerAgentPrinter[] } | ScannerAgentPrinter[];
 
   if (Array.isArray(data)) {
     return data.map(normalizePrinterDevice).filter((device) => Boolean(device.id && device.name));
@@ -465,39 +453,13 @@ export async function getPrinters() {
   return (data.printers || []).map(normalizePrinterDevice).filter((device) => Boolean(device.id && device.name));
 }
 
-const wait = (ms: number) => new Promise((resolve) => {
-  window.setTimeout(resolve, ms);
-});
-
 export async function refreshScannerDevices() {
-  try {
-    await requestJson('/refresh-scanners', {
-      method: 'POST',
-      headers: buildHeaders(),
-    });
-  } catch {
-    // Older agent builds may not expose this endpoint.
-    return;
-  }
-
-  // Wait briefly for background refresh completion if the endpoint exists.
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    try {
-      const status = await requestJson<AgentDeviceStatusResponse>('/device-status', {
-        headers: buildHeaders(),
-      });
-
-      if (!status?.isRefreshing && status?.ready) {
-        return;
-      }
-    } catch {
-      return;
-    }
-
-    await wait(600);
-  }
+  await fetch(apiUrl('/scanners'), {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
 }
-
 export async function scanDocument(payload: ScanDocumentPayload) {
   // The token is forwarded to the local agent so it can upload to the cloud backend per request.
   const token = getRequiredToken();

@@ -4,6 +4,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { randomUUID } = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
@@ -13,6 +14,8 @@ const execFileAsync = promisify(execFile);
 const app = express();
 const port = Number(process.env.LOCAL_AGENT_PORT || 3001);
 const backendApiRoot = String(process.env.BACKEND_API_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+const agentId = String(process.env.LOCAL_AGENT_ID || os.hostname()).trim();
+const agentName = String(process.env.LOCAL_AGENT_NAME || os.hostname()).trim();
 const scansDirectory = process.env.LOCAL_AGENT_SCANS_DIR || path.join(__dirname, '..', 'scans', 'local-agent');
 const naps2Path = process.env.NAPS2_PATH || 'C:\\Program Files\\NAPS2\\NAPS2.Console.exe';
 
@@ -396,6 +399,34 @@ function sendForwardedError(error, res) {
   });
 }
 
+async function sendHeartbeat() {
+  try {
+    if (!scannerDiscoveryState.lastUpdated) {
+      await refreshScannerCache('heartbeat-init');
+    }
+
+    const response = await axios.post(`${backendApiRoot}/agent/heartbeat`, {
+      agentId,
+      agentName,
+      hostname: os.hostname(),
+      status: 'online',
+      naps2Installed: fs.existsSync(naps2Path),
+      scanners: scannerDiscoveryState.scanners,
+      printers: [],
+      lastUpdated: scannerDiscoveryState.lastUpdated,
+    }, {
+      timeout: 10000,
+      validateStatus: () => true,
+    });
+
+    if (response.status >= 400) {
+      log('Heartbeat rejected by backend', { status: response.status, data: response.data });
+    }
+  } catch (error) {
+    logError('Heartbeat failed', error, { backendApiRoot });
+  }
+}
+
 app.get('/health', (_req, res) => {
   res.json({
     ok: true,
@@ -574,7 +605,12 @@ setInterval(() => {
   }
 }, Math.max(10000, Math.floor(SCANNER_CACHE_TTL_MS / 2)));
 
+setInterval(() => {
+  void sendHeartbeat();
+}, 5000);
+
 app.listen(port, () => {
   log(`Local scanner agent listening on http://localhost:${port}`);
   triggerScannerRefresh('startup');
+  void sendHeartbeat();
 });

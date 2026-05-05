@@ -33,6 +33,84 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+const SCANNER_HEARTBEAT_TTL_MS = Number(process.env.SCANNER_HEARTBEAT_TTL_MS || 15000);
+const scannerAgents = new Map();
+
+function normalizeScannerRecord(device) {
+  const id = String(device?.id || device?.name || '').trim();
+  const name = String(device?.name || device?.id || '').trim();
+
+  return {
+    ...device,
+    id,
+    name,
+    status: typeof device?.status === 'string' ? device.status : undefined,
+    type: typeof device?.type === 'string' ? device.type : 'scanner',
+    connection: typeof device?.connection === 'string' ? device.connection : 'local',
+  };
+}
+
+function pruneExpiredAgents() {
+  const now = Date.now();
+
+  for (const [agentId, agent] of scannerAgents.entries()) {
+    if (!agent?.lastHeartbeatAt || (now - agent.lastHeartbeatAt) > SCANNER_HEARTBEAT_TTL_MS) {
+      scannerAgents.delete(agentId);
+    }
+  }
+}
+
+function collectOnlineDevices(kind) {
+  pruneExpiredAgents();
+
+  const devices = [];
+  for (const agent of scannerAgents.values()) {
+    const list = kind === 'printers' ? agent.printers : agent.scanners;
+
+    if (!Array.isArray(list)) {
+      continue;
+    }
+
+    for (const device of list) {
+      const normalized = normalizeScannerRecord(device);
+      if (!normalized.id || !normalized.name) {
+        continue;
+      }
+
+      if (String(normalized.status || '').toLowerCase() === 'offline') {
+        continue;
+      }
+
+      devices.push({
+        ...normalized,
+        agentId: agent.agentId,
+        agentName: agent.agentName,
+        hostname: agent.hostname,
+        lastHeartbeatAt: agent.lastHeartbeatAt,
+      });
+    }
+  }
+
+  return devices;
+}
+
+function getScannerHealthSummary() {
+  pruneExpiredAgents();
+
+  const scanners = collectOnlineDevices('scanners');
+  const printers = collectOnlineDevices('printers');
+  const agents = Array.from(scannerAgents.values());
+
+  return {
+    ok: agents.length > 0,
+    status: agents.length > 0 ? 'online' : 'offline',
+    agentCount: agents.length,
+    scanners: scanners.length,
+    printers: printers.length,
+    lastHeartbeatAt: agents.reduce((latest, agent) => Math.max(latest, agent.lastHeartbeatAt || 0), 0),
+  };
+}
+
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) {
@@ -85,6 +163,63 @@ app.get('/api/health', async (_req, res) => {
     console.error('Health check failed:', error);
     res.status(500).json({ ok: false, status: 'unhealthy' });
   }
+});
+
+app.post('/api/agent/heartbeat', (req, res) => {
+  const payload = req.body || {};
+  const agentId = String(payload.agentId || payload.agent_id || payload.hostname || 'local-agent').trim();
+  const agentName = String(payload.agentName || payload.agent_name || payload.hostname || agentId).trim();
+  const hostname = String(payload.hostname || payload.hostName || '').trim();
+  const scanners = Array.isArray(payload.scanners) ? payload.scanners.map(normalizeScannerRecord) : [];
+  const printers = Array.isArray(payload.printers) ? payload.printers.map(normalizeScannerRecord) : [];
+
+  scannerAgents.set(agentId, {
+    agentId,
+    agentName,
+    hostname,
+    scanners,
+    printers,
+    lastHeartbeatAt: Date.now(),
+    status: String(payload.status || 'online'),
+    naps2Installed: Boolean(payload.naps2Installed ?? payload.naps2 ?? true),
+  });
+
+  res.json({
+    ok: true,
+    agentId,
+    onlineScanners: scanners.length,
+    onlinePrinters: printers.length,
+    receivedAt: new Date().toISOString(),
+  });
+});
+
+app.get('/api/scanners', (_req, res) => {
+  const scanners = collectOnlineDevices('scanners');
+  const printers = collectOnlineDevices('printers');
+
+  res.json({
+    scanners,
+    printers,
+    summary: getScannerHealthSummary(),
+  });
+});
+
+app.get('/api/scan-health', (_req, res) => {
+  const summary = getScannerHealthSummary();
+
+  res.json({
+    agent: {
+      running: summary.ok,
+      ok: summary.ok,
+      naps2Installed: summary.ok,
+      backendUrl: process.env.PORTAL_URL || null,
+      scannerCacheReady: summary.scanners > 0,
+      cachedScannerCount: summary.scanners,
+      cachedPrinterCount: summary.printers,
+      lastHeartbeatAt: summary.lastHeartbeatAt,
+    },
+    summary,
+  });
 });
 
 async function start() {
