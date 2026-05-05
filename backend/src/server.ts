@@ -12,6 +12,8 @@ const app = express();
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://dms-frontend-production-0d65.up.railway.app';
 const allowedOrigins = new Set([
   'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
   'https://dms-frontend-production-0d65.up.railway.app',
   FRONTEND_URL,
 ]);

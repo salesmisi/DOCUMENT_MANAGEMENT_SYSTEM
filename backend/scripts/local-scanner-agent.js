@@ -14,7 +14,6 @@ const app = express();
 const port = Number(process.env.LOCAL_AGENT_PORT || 3001);
 const backendApiRoot = String(process.env.BACKEND_API_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
 const scansDirectory = process.env.LOCAL_AGENT_SCANS_DIR || path.join(__dirname, '..', 'scans', 'local-agent');
-const naps2Path = process.env.NAPS2_PATH || 'C:\\Program Files\\NAPS2\\NAPS2.Console.exe';
 
 const previewSessions = new Map();
 const SCANNER_CACHE_TTL_MS = Number(process.env.SCANNER_CACHE_TTL_MS || 2 * 60 * 1000);
@@ -71,6 +70,38 @@ function parseScannerList(stdout) {
     }));
 }
 
+function getCandidateNaps2Paths() {
+  const envPath = process.env.NAPS2_PATH;
+  const candidates = [
+    envPath,
+    'C:\\Program Files\\NAPS2\\NAPS2.Console.exe',
+    'C:\\Program Files (x86)\\NAPS2\\NAPS2.Console.exe',
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'NAPS2', 'NAPS2.Console.exe'),
+  ].filter(Boolean);
+
+  return [...new Set(candidates)];
+}
+
+async function findNaps2Executable() {
+  for (const candidate of getCandidateNaps2Paths()) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  try {
+    const { stdout } = await execFileWithTimeout('where', ['NAPS2.Console.exe'], 5000);
+    const firstPath = stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
+
+    return firstPath || null;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeDeviceName(name) {
   return String(name || '')
     .trim()
@@ -78,6 +109,27 @@ function normalizeDeviceName(name) {
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function tokenizeDeviceName(name) {
+  const stopWords = new Set([
+    'series',
+    'scanner',
+    'scan',
+    'printer',
+    'wia',
+    'twain',
+    'escl',
+    'network',
+    'usb',
+    'wsd',
+    'driver',
+  ]);
+
+  return normalizeDeviceName(name)
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stopWords.has(token));
 }
 
 function isVirtualPrinter(name) {
@@ -94,11 +146,13 @@ async function execFileWithTimeout(file, args, timeout) {
 
 function matchActiveDevice(scannerName, activeNames) {
   const normalizedScannerName = normalizeDeviceName(scannerName);
+  const scannerTokens = tokenizeDeviceName(scannerName);
 
   return activeNames.some((activeName) => (
     normalizedScannerName === activeName
     || normalizedScannerName.includes(activeName)
     || activeName.includes(normalizedScannerName)
+    || scannerTokens.filter((token) => activeName.includes(token)).length >= 2
   ));
 }
 
@@ -157,7 +211,9 @@ async function listActiveWindowsDevices() {
 }
 
 async function listScannersFresh() {
-  if (!fs.existsSync(naps2Path)) {
+  const naps2Path = await findNaps2Executable();
+
+  if (!naps2Path) {
     return [];
   }
 
@@ -281,9 +337,19 @@ function resolveScanSource(scanSource) {
 }
 
 async function listScanners() {
-  if (!isScannerCacheFresh()) {
-    triggerScannerRefresh(scannerDiscoveryState.lastUpdated ? 'stale-read' : 'cold-start');
+  if (isScannerCacheFresh()) {
+    return getCachedScanners();
   }
+
+  if (!scannerDiscoveryState.lastUpdated || scannerDiscoveryState.scanners.length === 0) {
+    const scanners = await refreshScannerCache(
+      scannerDiscoveryState.lastUpdated ? 'stale-empty-blocking' : 'cold-start-blocking',
+    );
+
+    return scanners.map((scanner) => ({ ...scanner }));
+  }
+
+  triggerScannerRefresh('stale-read');
 
   return getCachedScanners();
 }
@@ -316,8 +382,10 @@ function buildScanFailureError(error, options) {
 }
 
 async function runNaps2Scan({ scanner, driver, dpi, color, paperSize, outputPath, scanSource }) {
-  if (!fs.existsSync(naps2Path)) {
-    throw new Error(`NAPS2 executable not found at ${naps2Path}`);
+  const naps2Path = await findNaps2Executable();
+
+  if (!naps2Path) {
+    throw new Error('NAPS2 executable was not found. Install NAPS2 or set NAPS2_PATH.');
   }
 
   const args = ['-o', outputPath, '--verbose'];
@@ -396,10 +464,13 @@ function sendForwardedError(error, res) {
   });
 }
 
-app.get('/health', (_req, res) => {
+app.get('/health', async (_req, res) => {
+  const naps2Path = await findNaps2Executable();
+
   res.json({
     ok: true,
-    naps2Installed: fs.existsSync(naps2Path),
+    naps2Installed: Boolean(naps2Path),
+    naps2Path,
     scannerCacheReady: scannerDiscoveryState.lastUpdated > 0,
     scannerRefreshInProgress: Boolean(scannerDiscoveryState.refreshPromise),
     cachedScannerCount: scannerDiscoveryState.scanners.length,
