@@ -198,9 +198,8 @@ export function DocumentCard({
                         onRequested={() => setShowRequestDeleteModal(false)}
                       />
                     )}
-                }
                   </div>
-              }
+                }
               </div>
             }
           </div>

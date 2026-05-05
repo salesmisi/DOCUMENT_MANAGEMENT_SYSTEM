@@ -138,6 +138,27 @@ function normalizeDeviceName(name) {
     .trim();
 }
 
+function tokenizeDeviceName(name) {
+  const stopWords = new Set([
+    'series',
+    'scanner',
+    'scan',
+    'printer',
+    'wia',
+    'twain',
+    'escl',
+    'network',
+    'usb',
+    'wsd',
+    'driver',
+  ]);
+
+  return normalizeDeviceName(name)
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stopWords.has(token));
+}
+
 function isVirtualPrinter(name) {
   return /microsoft (xps|print to pdf)|onenote|fax|adobe pdf|cutepdf/i.test(String(name || ''));
 }
@@ -256,11 +277,13 @@ function parseScannerList(stdout) {
 
 function matchActiveDevice(scannerName, activeNames) {
   const normalizedScannerName = normalizeDeviceName(scannerName);
+  const scannerTokens = tokenizeDeviceName(scannerName);
 
   return activeNames.some((activeName) => (
     normalizedScannerName === activeName
     || normalizedScannerName.includes(activeName)
     || activeName.includes(normalizedScannerName)
+    || scannerTokens.filter((token) => activeName.includes(token)).length >= 2
   ));
 }
 
@@ -421,9 +444,19 @@ function triggerScannerRefresh(reason) {
 }
 
 async function listScanners() {
-  if (!isScannerCacheFresh()) {
-    triggerScannerRefresh(scannerDiscoveryState.lastUpdated ? 'stale-read' : 'cold-start');
+  if (isScannerCacheFresh()) {
+    return getCachedScanners();
   }
+
+  if (!scannerDiscoveryState.lastUpdated || scannerDiscoveryState.scanners.length === 0) {
+    const scanners = await refreshScannerCache(
+      scannerDiscoveryState.lastUpdated ? 'stale-empty-blocking' : 'cold-start-blocking',
+    );
+
+    return scanners.map((scanner) => ({ ...scanner }));
+  }
+
+  triggerScannerRefresh('stale-read');
 
   return getCachedScanners();
 }

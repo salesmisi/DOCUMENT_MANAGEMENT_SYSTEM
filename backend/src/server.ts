@@ -10,81 +10,27 @@ dotenv.config();
 
 const app = express();
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://dms-frontend-production-0d65.up.railway.app';
-const normalizeOrigin = (origin: string) => origin.replace(/\/+$/, '').toLowerCase();
 const allowedOrigins = new Set([
-  'https://dms-frontend-production-0d65.up.railway.app',
   'http://localhost:5173',
-  'http://127.0.0.1:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'https://dms-frontend-production-0d65.up.railway.app',
   FRONTEND_URL,
-].map(normalizeOrigin));
+]);
 
-// Middleware - CORS configuration - CRITICAL FOR RAILWAY DEPLOYMENT
-// This must validate against a strict allowlist and never throw.
-const corsOriginValidator = (origin: string | undefined, callback: (err: Error | null, allow?: boolean | string) => void) => {
-  if (!origin) {
-    callback(null, true);
-    return;
-  }
+// Middleware
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
 
-  const normalizedOrigin = normalizeOrigin(origin);
-  const isAllowed = allowedOrigins.has(normalizedOrigin);
-
-  if (isAllowed) {
-    callback(null, origin);
-    return;
-  }
-
-  console.warn(`[CORS] Origin not in allowlist: ${origin}`);
-  callback(null, false);
-};
-
-const corsOptions: cors.CorsOptions = {
-  origin: corsOriginValidator,
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
   credentials: true,
-  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  exposedHeaders: ['Content-Type', 'Content-Length', 'Content-Range', 'X-Content-Range', 'X-Request-Id', 'Authorization'],
-  maxAge: 86400, // 24 hours
-  optionsSuccessStatus: 200,
-  preflightContinue: true,
-};
-
-// CRITICAL: Apply CORS middleware FIRST before any routes
-console.log('[STARTUP] Initializing CORS middleware for Railway...');
-console.log('[STARTUP] Allowed frontend origins:', Array.from(allowedOrigins).join(', '));
-app.use(cors(corsOptions));
-
-app.options(/.*/, cors(corsOptions), (_req, res) => {
-  res.sendStatus(200);
-});
-
-app.use((req, res, next) => {
-  const requestKind = req.path.startsWith('/api')
-    ? 'api'
-    : req.path.startsWith('/uploads')
-      ? 'uploads'
-      : req.path.startsWith('/auth')
-        ? 'auth'
-        : 'spa-candidate';
-
-  console.log('[REQ]', req.method, req.path, req.headers.origin, requestKind);
-  res.setHeader('X-Debug-CORS', 'active');
-
-  const origin = req.headers.origin;
-  if (origin && allowedOrigins.has(normalizeOrigin(origin))) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
-    res.setHeader('Vary', 'Origin');
-  }
-
-  next();
-});
-
-// Body parsing middleware (MUST come after CORS)
+}));
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), 'uploads');
@@ -459,7 +405,9 @@ import settingsRoutes from './routes/settings.routes';
 import scanWatcher from './services/scanWatcher.service';
 import cleanupService from './services/cleanup.service';
 
-// API routes
+// Compatibility aliases for deployments that call root paths instead of /api/*.
+app.use('/auth', authRoutes);
+
 app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/folders', folderRoutes);
@@ -511,17 +459,13 @@ app.get('/api/scan-health', async (_req, res) => {
 if (frontendDistDir) {
   app.use(express.static(frontendDistDir, { index: false }));
 
-  app.use((req, res, next) => {
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
+  app.get('/{*spa}', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/auth')) {
       next();
       return;
     }
 
-    if (req.path.startsWith('/api')) return next();
-    if (req.path.startsWith('/uploads')) return next();
-    if (req.path.startsWith('/auth')) return next();
-
-    return res.sendFile(path.join(frontendDistDir, 'index.html'));
+    res.sendFile(path.join(frontendDistDir, 'index.html'));
   });
 } else {
   app.get('/', (_req, res) => res.send('API is running'));

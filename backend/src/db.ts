@@ -9,9 +9,11 @@ if (!connectionString) {
   console.error('DATABASE_URL is required for PostgreSQL connection.');
 }
 
+const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+
 const pool = new Pool({
   connectionString,
-  ssl: connectionString ? { rejectUnauthorized: false } : false,
+  ssl: connectionString && !isLocal ? { rejectUnauthorized: false } : false,
 });
 
 export const connectDB = async () => {

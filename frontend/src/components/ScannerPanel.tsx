@@ -136,17 +136,27 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
   const hasRequiredScanFields = Boolean(title.trim() && departmentFolderId && subfolderId);
 
   const networkPrinterCandidates = useMemo(() => {
-    const scannerNames = new Set(scanners.map((scanner) => normalizeDeviceBaseName(scanner.name)));
+    const scannerIds = new Set(scanners.map((scanner) => scanner.id));
+    const scannerBaseNames = new Set(scanners.map((scanner) => normalizeDeviceBaseName(scanner.name)));
 
     return printers.filter((printer) => {
+      // Skip if the printer is already represented as a scanner entry.
+      if (scannerIds.has(printer.id)) {
+        return false;
+      }
+
       const normalizedConnection = String(printer.connection || '').trim().toLowerCase();
 
+      // Only surface network-connected printers (local USB devices are already in scanners).
       if (normalizedConnection !== 'network') {
         return false;
       }
 
       const baseName = normalizeDeviceBaseName(printer.name || printer.driverName);
-      return Boolean(baseName) && !scannerNames.has(baseName);
+
+      // Keep network printers whose base name is NOT already covered by a scanner entry,
+      // because NAPS2 may be able to use them via ESCL/IPP even when WIA/TWAIN isn't listed.
+      return Boolean(baseName) && !scannerBaseNames.has(baseName);
     });
   }, [printers, scanners]);
 
@@ -430,7 +440,8 @@ export function ScannerPanel({ folders, onUploaded }: ScannerPanelProps) {
                     return ['ready', 'idle', 'ok', 'available'].includes(explicitStatus);
                   }
 
-                  return false;
+                  // No explicit status field — assume ready when agent is online
+                  return true;
                 })();
 
                 return (
