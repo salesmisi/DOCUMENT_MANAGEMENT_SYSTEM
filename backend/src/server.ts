@@ -511,7 +511,12 @@ app.get('/api/scan-health', async (_req, res) => {
 if (frontendDistDir) {
   app.use(express.static(frontendDistDir, { index: false }));
 
-  app.get(/.*/, (req, res, next) => {
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      next();
+      return;
+    }
+
     if (req.path.startsWith('/api')) return next();
     if (req.path.startsWith('/uploads')) return next();
     if (req.path.startsWith('/auth')) return next();
