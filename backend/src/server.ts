@@ -11,17 +11,11 @@ dotenv.config();
 const app = express();
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://dms-frontend-production-0d65.up.railway.app';
 const normalizeOrigin = (origin: string) => origin.replace(/\/+$/, '').toLowerCase();
-const extraOrigins = String(process.env.CORS_ORIGINS || '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
 const allowedOrigins = new Set([
+  'https://dms-frontend-production-0d65.up.railway.app',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
-  'https://documentmanagementsystem-production-9d6e.up.railway.app',
-  'https://dms-frontend-production-0d65.up.railway.app',
   FRONTEND_URL,
-  ...extraOrigins,
 ].map(normalizeOrigin));
 
 // Middleware - CORS configuration - CRITICAL FOR RAILWAY DEPLOYMENT
@@ -48,7 +42,7 @@ const corsOptions: cors.CorsOptions = {
   origin: corsOriginValidator,
   credentials: true,
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Access-Control-Request-Headers', 'Access-Control-Request-Method'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   exposedHeaders: ['Content-Type', 'Content-Length', 'Content-Range', 'X-Content-Range', 'X-Request-Id', 'Authorization'],
   maxAge: 86400, // 24 hours
   optionsSuccessStatus: 200,
@@ -65,12 +59,15 @@ app.options(/.*/, cors(corsOptions), (_req, res) => {
 });
 
 app.use((req, res, next) => {
-  console.log(req.method, req.path, req.headers.origin ?? '');
+  console.log('[REQ]', req.method, req.path, req.headers.origin);
+  res.setHeader('X-Debug-CORS', 'active');
 
   const origin = req.headers.origin;
   if (origin && allowedOrigins.has(normalizeOrigin(origin))) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
     res.setHeader('Vary', 'Origin');
   }
 
@@ -454,7 +451,7 @@ import settingsRoutes from './routes/settings.routes';
 import scanWatcher from './services/scanWatcher.service';
 import cleanupService from './services/cleanup.service';
 
-// Compatibility aliases for deployments that call root paths instead of /api/*.
+// API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/folders', folderRoutes);
@@ -507,12 +504,11 @@ if (frontendDistDir) {
   app.use(express.static(frontendDistDir, { index: false }));
 
   app.get(/.*/, (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/auth')) {
-      next();
-      return;
-    }
+    if (req.path.startsWith('/api')) return next();
+    if (req.path.startsWith('/uploads')) return next();
+    if (req.path.startsWith('/auth')) return next();
 
-    res.sendFile(path.join(frontendDistDir, 'index.html'));
+    return res.sendFile(path.join(frontendDistDir, 'index.html'));
   });
 } else {
   app.get('/', (_req, res) => res.send('API is running'));
