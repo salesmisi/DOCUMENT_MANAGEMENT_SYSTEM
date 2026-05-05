@@ -112,12 +112,12 @@ function getScannerHealthSummary() {
 }
 
 // CORS configuration for production - Railway deployment
-// IMPORTANT: This must run BEFORE any routes
+// CRITICAL: Must return CORS headers for allowed origins, never throw errors
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (same-origin requests, servers)
+    // Allow requests with no origin (same-origin, mobile apps, servers)
     if (!origin) {
-      console.log('✓ CORS allowed (no origin - same-origin request)');
+      console.log('[CORS] ✓ Same-origin request (no origin header)');
       callback(null, true);
       return;
     }
@@ -126,33 +126,34 @@ const corsOptions = {
     const isAllowed = allowedOrigins.has(normalizedOrigin);
 
     if (isAllowed) {
-      console.log(`✓ CORS allowed for: ${origin}`);
+      console.log(`[CORS] ✓ ALLOWED: ${origin}`);
+      // Set CORS headers for this origin
       callback(null, true);
       return;
     }
 
-    // REJECT non-allowed origins with error - this is strict security
-    console.error(`✗ CORS REJECTED for: ${origin} (normalized: ${normalizedOrigin})`);
-    console.error(`  Allowed origins: ${Array.from(allowedOrigins).join(', ')}`);
-    const error = new Error(`CORS: Origin '${origin}' not allowed`);
-    error.status = 403;
-    callback(error);
+    // For non-allowed origins: don't set CORS headers (browser blocks gracefully)
+    // but still allow request through Express (no callback error)
+    console.warn(`[CORS] ✗ BLOCKED: ${origin} (not in allowlist)`);
+    console.warn(`[CORS]   Allowed: ${Array.from(allowedOrigins).join(', ')}`);
+    // callback(null, false) means: allow request but don't set CORS headers
+    callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Access-Control-Request-Method', 'Access-Control-Request-Headers'],
   exposedHeaders: ['Content-Type', 'Content-Length', 'Content-Range', 'X-Content-Range', 'X-Request-Id'],
-  maxAge: 86400, // 24 hours
+  maxAge: 86400, // 24 hours - cache preflight responses
   optionsSuccessStatus: 200,
-  preflightContinue: false, // Important: let CORS middleware handle preflight
+  preflightContinue: false,
 };
 
-// Apply CORS FIRST - before any routes
-console.log('Applying CORS middleware...');
-console.log('Allowed frontend origins:', Array.from(allowedOrigins));
+// CRITICAL: Apply CORS FIRST before any other middleware or routes
+console.log('[STARTUP] Initializing CORS middleware...');
+console.log('[STARTUP] Allowed origins:', Array.from(allowedOrigins).join(', '));
 app.use(cors(corsOptions));
 
-// Body parsing middleware
+// Body parsing middleware (after CORS)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
