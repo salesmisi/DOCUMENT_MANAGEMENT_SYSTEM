@@ -25,9 +25,8 @@ const allowedOrigins = new Set([
 ].map(normalizeOrigin));
 
 // Middleware - CORS configuration - CRITICAL FOR RAILWAY DEPLOYMENT
-// This must validate against strict allowlist and always set headers for allowed origins
-const corsOriginValidator = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-  // Always allow requests with no origin (same-origin, mobile apps, curl)
+// This must validate against a strict allowlist and never throw.
+const corsOriginValidator = (origin: string | undefined, callback: (err: Error | null, allow?: boolean | string) => void) => {
   if (!origin) {
     callback(null, true);
     return;
@@ -37,15 +36,12 @@ const corsOriginValidator = (origin: string | undefined, callback: (err: Error |
   const isAllowed = allowedOrigins.has(normalizedOrigin);
 
   if (isAllowed) {
-    // ALLOW - return true to set CORS headers
-    callback(null, true);
+    callback(null, origin);
     return;
   }
 
-  // NOT ALLOWED - return true anyway to set headers (browser will handle rejection)
-  // This ensures backend always responds properly, browser enforces CORS
   console.warn(`[CORS] Origin not in allowlist: ${origin}`);
-  callback(null, true); // Still return true - let browser handle it
+  callback(null, false);
 };
 
 const corsOptions: cors.CorsOptions = {
@@ -56,13 +52,30 @@ const corsOptions: cors.CorsOptions = {
   exposedHeaders: ['Content-Type', 'Content-Length', 'Content-Range', 'X-Content-Range', 'X-Request-Id', 'Authorization'],
   maxAge: 86400, // 24 hours
   optionsSuccessStatus: 200,
-  preflightContinue: false,
+  preflightContinue: true,
 };
 
 // CRITICAL: Apply CORS middleware FIRST before any routes
 console.log('[STARTUP] Initializing CORS middleware for Railway...');
 console.log('[STARTUP] Allowed frontend origins:', Array.from(allowedOrigins).join(', '));
 app.use(cors(corsOptions));
+
+app.options(/.*/, cors(corsOptions), (_req, res) => {
+  res.sendStatus(200);
+});
+
+app.use((req, res, next) => {
+  console.log(req.method, req.path, req.headers.origin ?? '');
+
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(normalizeOrigin(origin))) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+  }
+
+  next();
+});
 
 // Body parsing middleware (MUST come after CORS)
 app.use(express.json());
@@ -442,8 +455,6 @@ import scanWatcher from './services/scanWatcher.service';
 import cleanupService from './services/cleanup.service';
 
 // Compatibility aliases for deployments that call root paths instead of /api/*.
-app.use('/auth', authRoutes);
-
 app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/folders', folderRoutes);
@@ -495,7 +506,7 @@ app.get('/api/scan-health', async (_req, res) => {
 if (frontendDistDir) {
   app.use(express.static(frontendDistDir, { index: false }));
 
-  app.get('/{*spa}', (req, res, next) => {
+  app.get(/.*/, (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/auth')) {
       next();
       return;
