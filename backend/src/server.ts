@@ -24,9 +24,10 @@ const allowedOrigins = new Set([
   ...extraOrigins,
 ].map(normalizeOrigin));
 
-// Middleware
+// Middleware - CORS configuration for production - Railway deployment
 app.use(cors({
   origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) {
       callback(null, true);
       return;
@@ -38,9 +39,38 @@ app.use(cors({
       return;
     }
 
-    callback(new Error(`CORS blocked for origin: ${origin}. Allowed: ${Array.from(allowedOrigins).join(', ')}`));
+    // Log blocked origins for debugging
+    console.warn(`CORS blocked for origin: ${origin}. Allowed origins: ${Array.from(allowedOrigins).join(', ')}`);
+    callback(new Error(`CORS origin not allowed: ${origin}`));
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range', 'X-Request-Id'],
+  maxAge: 86400, // 24 hours - cache preflight requests
+  optionsSuccessStatus: 200, // Some legacy browsers choke on 204
+}));
+
+// Explicitly handle OPTIONS preflight requests
+app.options('*', cors({
+  origin: (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (allowedOrigins.has(normalizedOrigin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error(`CORS origin not allowed: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range', 'X-Request-Id'],
+  maxAge: 86400,
+  optionsSuccessStatus: 200,
 }));
 app.use(express.json());
 
