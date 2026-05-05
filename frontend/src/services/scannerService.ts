@@ -52,13 +52,14 @@ export const isScannerAgentReachableFromBrowser = () => {
 const getAgentBaseCandidates = () => {
   const unique = new Set<string>();
 
-  const candidates = isLocalFrontendHost()
-    ? [
-        configuredAgentUrl || DEFAULT_AGENT_URL,
-        DEFAULT_AGENT_URL,
-        'http://127.0.0.1:3001',
-      ]
-    : [configuredAgentUrl].filter((candidate): candidate is string => Boolean(candidate) && !isLoopbackAgentUrl(candidate));
+  // The local scanner agent runs on the user's machine. The browser can always
+  // reach http://localhost:3001 directly even when the page itself is served
+  // from an HTTPS Railway domain (browsers treat localhost as a secure context).
+  const candidates = [
+    configuredAgentUrl,
+    DEFAULT_AGENT_URL,
+    'http://127.0.0.1:3001',
+  ].filter((candidate): candidate is string => Boolean(candidate));
 
   for (const candidate of candidates) {
     const normalized = normalizeAgentBaseUrl(candidate);
@@ -300,12 +301,12 @@ export async function getAgentHealth() {
     } satisfies ScannerAgentHealth;
   }
 
-  const response = await fetch(apiUrl('/scan-health'), {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-  });
+  // Probe the local agent directly from the browser. The deployed backend
+  // cannot reach the user's localhost, so going through it would always
+  // report the agent as offline.
+  const status = await resolveAgentBaseUrl();
 
-  if (!response.ok) {
+  if (!status) {
     return {
       status: 'offline',
       ok: false,
@@ -313,14 +314,11 @@ export async function getAgentHealth() {
     } satisfies ScannerAgentHealth;
   }
 
-  const payload = await response.json() as { agent?: Partial<ScannerAgentHealth & AgentStatusResponse> };
-  const agent = payload.agent || {};
-
   return {
-    status: String(agent.status || (agent.ok || agent.running ? 'ok' : 'offline')),
-    ok: Boolean(agent.ok ?? agent.running ?? agent.status === 'ok'),
-    naps2Installed: Boolean(agent.naps2Installed ?? agent.naps2),
-    backendUrl: agent.backendUrl,
+    status: status.running ? 'ok' : 'offline',
+    ok: Boolean(status.running),
+    naps2Installed: Boolean(status.naps2),
+    backendUrl: typeof status.backendUrl === 'string' ? status.backendUrl : undefined,
   } satisfies ScannerAgentHealth;
 }
 
@@ -414,51 +412,32 @@ export async function checkAgent() {
 }
 
 export async function getScanners() {
-  const response = await fetch(apiUrl('/scanners'), {
-    headers: {
-      Accept: 'application/json',
-    },
-  });
+  try {
+    const data = await requestJson<ScannerAgentDevice[] | { scanners?: ScannerAgentDevice[] }>('/scanners', {
+      headers: { Accept: 'application/json' },
+    });
 
-  if (!response.ok) {
+    if (Array.isArray(data)) {
+      return data.map(normalizeScannerDevice).filter((device) => Boolean(device.id && device.name));
+    }
+
+    return (data?.scanners || []).map(normalizeScannerDevice).filter((device) => Boolean(device.id && device.name));
+  } catch {
     return [];
   }
-
-  const data = await response.json() as ScannerAgentDevice[] | { scanners?: ScannerAgentDevice[] };
-
-  if (Array.isArray(data)) {
-    return data.map(normalizeScannerDevice).filter((device) => Boolean(device.id && device.name));
-  }
-
-  return (data.scanners || []).map(normalizeScannerDevice).filter((device) => Boolean(device.id && device.name));
 }
 
-export async function getPrinters() {
-  const response = await fetch(apiUrl('/scanners'), {
-    headers: {
-      Accept: 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    return [];
-  }
-
-  const data = await response.json() as { printers?: ScannerAgentPrinter[] } | ScannerAgentPrinter[];
-
-  if (Array.isArray(data)) {
-    return data.map(normalizePrinterDevice).filter((device) => Boolean(device.id && device.name));
-  }
-
-  return (data.printers || []).map(normalizePrinterDevice).filter((device) => Boolean(device.id && device.name));
+export async function getPrinters(): Promise<ScannerAgentPrinter[]> {
+  // The local scanner agent does not expose printer enumeration.
+  return [];
 }
 
 export async function refreshScannerDevices() {
-  await fetch(apiUrl('/scanners'), {
-    headers: {
-      Accept: 'application/json',
-    },
-  });
+  try {
+    await requestJson('/refresh-scanners', { method: 'POST' });
+  } catch {
+    // Best-effort refresh; ignore failures so the UI can still re-render.
+  }
 }
 export async function scanDocument(payload: ScanDocumentPayload) {
   // The token is forwarded to the local agent so it can upload to the cloud backend per request.
