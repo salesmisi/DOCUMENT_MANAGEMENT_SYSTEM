@@ -25,10 +25,12 @@ const allowedOrigins = new Set([
 ].map(normalizeOrigin));
 
 // Middleware - CORS configuration for production - Railway deployment
-const corsOptions: any = {
-  origin: (origin: string | undefined, callback: any) => {
-    // Always allow requests with no origin (internal requests, servers, mobile apps)
+// IMPORTANT: This must run BEFORE any routes
+const corsOptions: cors.CorsOptions = {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Allow requests with no origin (same-origin requests, servers)
     if (!origin) {
+      console.log('✓ CORS allowed (no origin - same-origin request)');
       callback(null, true);
       return;
     }
@@ -37,28 +39,34 @@ const corsOptions: any = {
     const isAllowed = allowedOrigins.has(normalizedOrigin);
 
     if (isAllowed) {
-      console.log(`✓ CORS allowed for origin: ${origin}`);
+      console.log(`✓ CORS allowed for: ${origin}`);
       callback(null, true);
       return;
     }
 
-    console.warn(`✗ CORS denied for origin: ${origin} (normalized: ${normalizedOrigin})`);
-    console.warn(`  Allowed: ${Array.from(allowedOrigins).join(', ')}`);
-    // Allow for now to ensure headers are sent even for diagnostic purposes
-    callback(null, true);
+    // REJECT non-allowed origins with error - this is strict security
+    console.error(`✗ CORS REJECTED for: ${origin} (normalized: ${normalizedOrigin})`);
+    console.error(`  Allowed origins: ${Array.from(allowedOrigins).join(', ')}`);
+    const error = new Error(`CORS: Origin '${origin}' not allowed`);
+    callback(error);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  exposedHeaders: ['Content-Length', 'Content-Range', 'X-Content-Range', 'X-Request-Id'],
-  maxAge: 86400, // 24 hours - cache preflight responses
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Access-Control-Request-Method', 'Access-Control-Request-Headers'],
+  exposedHeaders: ['Content-Type', 'Content-Length', 'Content-Range', 'X-Content-Range', 'X-Request-Id'],
+  maxAge: 86400, // 24 hours
   optionsSuccessStatus: 200,
+  preflightContinue: false, // Important: let CORS middleware handle preflight
 };
 
-// Apply CORS globally to all requests - handles preflight OPTIONS automatically
+// Apply CORS FIRST - before any routes
+console.log('Applying CORS middleware...');
+console.log('Allowed frontend origins:', Array.from(allowedOrigins));
 app.use(cors(corsOptions));
 
+// Body parsing middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), 'uploads');
