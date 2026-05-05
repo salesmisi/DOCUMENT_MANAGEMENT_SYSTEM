@@ -169,15 +169,22 @@ function isScannerCacheFresh() {
 }
 
 async function listActiveWindowsDevices() {
+  // Use Get-PnpDevice with -PresentOnly so we only count devices that are
+  // currently physically connected (USB plugged in / device powered on).
+  // Win32_PnPEntity alone keeps drivers that are installed but detached,
+  // which would falsely mark unplugged scanners as "Ready".
   const command = [
+    '$ErrorActionPreference = "SilentlyContinue";',
     '$devices = @();',
-    '$devices += Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |',
+    '$devices += Get-PnpDevice -PresentOnly -Status OK |',
     'Where-Object {',
-    "  $_.Name -and $_.Status -eq 'OK' -and (",
-    "    $_.PNPClass -in @('Image','Camera') -or $_.Service -eq 'stisvc' -or $_.Name -match 'scanner|scan|imaging|wia|adf|flatbed'",
+    "  $_.FriendlyName -and (",
+    "    $_.Class -in @('Image','Camera','Scanner','MultiFunction','Printer','PrintQueue') -or",
+    "    $_.Service -eq 'stisvc' -or",
+    "    $_.FriendlyName -match 'scanner|scan|imaging|wia|adf|flatbed|epson|canon|brother|hp |kyocera|ricoh|fujitsu'",
     '  )',
-    "} | Select-Object @{Name='Name';Expression={$_.Name}};",
-    '$devices += Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue |',
+    "} | Select-Object @{Name='Name';Expression={$_.FriendlyName}};",
+    '$devices += Get-CimInstance Win32_Printer |',
     'Where-Object {',
     "  $_.Name -and $_.WorkOffline -ne $true -and $_.PrinterStatus -notin 5,6,7 -and (",
     "    $_.PortName -match 'USB|WSD|IP_|TCP|DOT4' -or $_.Local -eq $true -or $_.Network -eq $true",
