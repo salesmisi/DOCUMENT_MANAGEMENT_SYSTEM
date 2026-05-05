@@ -50,28 +50,6 @@ app.use(cors({
   maxAge: 86400, // 24 hours - cache preflight requests
   optionsSuccessStatus: 200, // Some legacy browsers choke on 204
 }));
-
-// Explicitly handle OPTIONS preflight requests
-app.options('*', cors({
-  origin: (origin, callback) => {
-    if (!origin) {
-      callback(null, true);
-      return;
-    }
-    const normalizedOrigin = normalizeOrigin(origin);
-    if (allowedOrigins.has(normalizedOrigin)) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error(`CORS origin not allowed: ${origin}`));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range', 'X-Request-Id'],
-  maxAge: 86400,
-  optionsSuccessStatus: 200,
-}));
 app.use(express.json());
 
 // Ensure uploads directory exists
