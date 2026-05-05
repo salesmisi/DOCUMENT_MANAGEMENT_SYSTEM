@@ -59,7 +59,15 @@ app.options(/.*/, cors(corsOptions), (_req, res) => {
 });
 
 app.use((req, res, next) => {
-  console.log('[REQ]', req.method, req.path, req.headers.origin);
+  const requestKind = req.path.startsWith('/api')
+    ? 'api'
+    : req.path.startsWith('/uploads')
+      ? 'uploads'
+      : req.path.startsWith('/auth')
+        ? 'auth'
+        : 'spa-candidate';
+
+  console.log('[REQ]', req.method, req.path, req.headers.origin, requestKind);
   res.setHeader('X-Debug-CORS', 'active');
 
   const origin = req.headers.origin;
