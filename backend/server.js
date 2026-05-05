@@ -7,20 +7,26 @@ dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://dms-frontend-production-0d65.up.railway.app';
 const DATABASE_URL = process.env.DATABASE_URL;
-const normalizeOrigin = (origin) => String(origin || '').replace(/\/+$/, '').toLowerCase();
-const extraOrigins = String(process.env.CORS_ORIGINS || '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const normalizeOrigin = (origin) => String(origin || '').trim().replace(/\/+$/, '');
+const splitEnvOrigins = (value) =>
+  String(value || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+const configuredOrigins = [
+  ...splitEnvOrigins(process.env.FRONTEND_URL),
+  ...splitEnvOrigins(process.env.FRONTEND_URLS),
+  ...splitEnvOrigins(process.env.CORS_ORIGIN),
+  ...splitEnvOrigins(process.env.CORS_ORIGINS),
+];
 const allowedOrigins = new Set([
   'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'https://documentmanagementsystem-production-9d6e.up.railway.app',
+  'http://localhost:5174',
+  'http://localhost:5175',
   'https://dms-frontend-production-0d65.up.railway.app',
-  FRONTEND_URL,
-  ...extraOrigins,
+  'https://frontenddms-production.up.railway.app',
+  ...configuredOrigins,
 ].map(normalizeOrigin));
 
 if (!DATABASE_URL) {
@@ -124,15 +130,11 @@ const corsOriginValidator = (origin, callback) => {
   const isAllowed = allowedOrigins.has(normalizedOrigin);
 
   if (isAllowed) {
-    // ALLOW - return true to set CORS headers
     callback(null, true);
     return;
   }
 
-  // NOT ALLOWED - return true anyway to set headers (browser will handle rejection)
-  // This ensures backend always responds properly, browser enforces CORS
-  console.warn(`[CORS] Origin not in allowlist: ${origin}`);
-  callback(null, true); // Still return true - let browser handle it
+  callback(new Error(`CORS blocked for origin: ${normalizedOrigin}`));
 };
 
 const corsOptions = {

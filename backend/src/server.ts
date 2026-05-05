@@ -9,24 +9,47 @@ import fs from 'fs';
 dotenv.config();
 
 const app = express();
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://dms-frontend-production-0d65.up.railway.app';
-const allowedOrigins = new Set([
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  'https://dms-frontend-production-0d65.up.railway.app',
-  FRONTEND_URL,
-]);
+const normalizeOrigin = (origin: string) => origin.trim().replace(/\/+$/, '');
+const splitEnvOrigins = (value?: string) =>
+  (value || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+const configuredOrigins = [
+  ...splitEnvOrigins(process.env.FRONTEND_URL),
+  ...splitEnvOrigins(process.env.FRONTEND_URLS),
+  ...splitEnvOrigins(process.env.CORS_ORIGIN),
+  ...splitEnvOrigins(process.env.CORS_ORIGINS),
+];
+
+const allowedOrigins = new Set(
+  [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:5175',
+    'https://dms-frontend-production-0d65.up.railway.app',
+    'https://frontenddms-production.up.railway.app',
+    ...configuredOrigins,
+  ].map(normalizeOrigin)
+);
 
 // Middleware
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.has(origin)) {
+    if (!origin) {
       callback(null, true);
       return;
     }
 
-    callback(new Error(`CORS blocked for origin: ${origin}`));
+    const normalizedOrigin = normalizeOrigin(origin);
+
+    if (allowedOrigins.has(normalizedOrigin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${normalizedOrigin}`));
   },
   credentials: true,
 }));
