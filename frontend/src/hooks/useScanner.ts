@@ -10,6 +10,7 @@ import {
   refreshScannerDevices,
   scanWithPreview,
   uploadScannedFile,
+  isScannerAgentReachableFromBrowser,
   type PreviewResult,
   type ScanPreviewPayload,
   type ScannerAgentDevice,
@@ -281,6 +282,28 @@ export function useScanner() {
     }
 
     try {
+      if (!isScannerAgentReachableFromBrowser()) {
+        const message = 'Scanner detection requires the frontend to run locally, or a tunnel URL must be configured for the agent.';
+
+        setAgentOnline(false);
+        setScannerAvailable(false);
+        setScannerStatusMessage(message);
+        setScanners([]);
+        setPrinters([]);
+        setSelectedScannerState('');
+        writeScannerUiCache({
+          ...scannerUiCacheState,
+          agentOnline: false,
+          scannerAvailable: false,
+          scannerStatusMessage: message,
+          scanners: [],
+          printers: [],
+          selectedScanner: '',
+          lastSyncedAt: Date.now(),
+        });
+        return false;
+      }
+
       const agent = await detectAgent();
       const connected = Boolean(agent?.running);
       const readyForScanning = Boolean(agent?.running && agent?.naps2);

@@ -2,10 +2,16 @@ import { apiUrl } from '../utils/api';
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 const DEFAULT_AGENT_URL = 'http://localhost:3001';
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+const isBrowser = typeof window !== 'undefined';
+const isLocalFrontendHost = () => isBrowser && LOOPBACK_HOSTS.has(window.location.hostname.toLowerCase());
+const importMetaEnv = typeof import.meta !== 'undefined'
+  ? (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
+  : undefined;
 
-const configuredAgentUrl = typeof import.meta !== 'undefined' && import.meta.env.VITE_AGENT_URL
-  ? String(import.meta.env.VITE_AGENT_URL)
-  : DEFAULT_AGENT_URL;
+const configuredAgentUrl = importMetaEnv?.VITE_AGENT_URL
+  ? String(importMetaEnv.VITE_AGENT_URL).trim()
+  : '';
 
 const AGENT_STATUS_PATHS = ['/health', '/status'];
 const TOKEN_STORAGE_KEYS = ['token', 'dms_token'];
@@ -26,13 +32,33 @@ const normalizeAgentBaseUrl = (value: string) => {
   }
 };
 
+const isLoopbackAgentUrl = (value: string) => {
+  try {
+    const parsed = new URL(value);
+    return LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase());
+  } catch {
+    return LOOPBACK_HOSTS.has(String(value || '').trim().toLowerCase().replace(/^https?:\/\//, ''));
+  }
+};
+
+export const isScannerAgentReachableFromBrowser = () => {
+  if (!isBrowser) {
+    return false;
+  }
+
+  return isLocalFrontendHost() || (configuredAgentUrl.length > 0 && !isLoopbackAgentUrl(configuredAgentUrl));
+};
+
 const getAgentBaseCandidates = () => {
   const unique = new Set<string>();
-  const candidates = [
-    configuredAgentUrl,
-    DEFAULT_AGENT_URL,
-    'http://127.0.0.1:3001',
-  ];
+
+  const candidates = isLocalFrontendHost()
+    ? [
+        configuredAgentUrl || DEFAULT_AGENT_URL,
+        DEFAULT_AGENT_URL,
+        'http://127.0.0.1:3001',
+      ]
+    : [configuredAgentUrl].filter((candidate): candidate is string => Boolean(candidate) && !isLoopbackAgentUrl(candidate));
 
   for (const candidate of candidates) {
     const normalized = normalizeAgentBaseUrl(candidate);
@@ -282,6 +308,39 @@ const normalizePrinterDevice = (device: ScannerAgentPrinter) => ({
 });
 
 export async function getAgentHealth() {
+  if (!isBrowser) {
+    return {
+      status: 'offline',
+      ok: false,
+      naps2Installed: false,
+    } satisfies ScannerAgentHealth;
+  }
+
+  if (!isScannerAgentReachableFromBrowser()) {
+    const response = await fetch(apiUrl('/scan-health'), {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+
+    if (!response.ok) {
+      return {
+        status: 'offline',
+        ok: false,
+        naps2Installed: false,
+      } satisfies ScannerAgentHealth;
+    }
+
+    const payload = await response.json() as { agent?: Partial<ScannerAgentHealth & AgentStatusResponse> };
+    const agent = payload.agent || {};
+
+    return {
+      status: String(agent.status || (agent.ok || agent.running ? 'ok' : 'offline')),
+      ok: Boolean(agent.ok ?? agent.running ?? agent.status === 'ok'),
+      naps2Installed: Boolean(agent.naps2Installed ?? agent.naps2),
+      backendUrl: agent.backendUrl,
+    } satisfies ScannerAgentHealth;
+  }
+
   const agent = await detectAgent();
 
   if (!agent) {
@@ -293,7 +352,7 @@ export async function getAgentHealth() {
     ok: agent.running,
     naps2Installed: agent.naps2,
   } satisfies ScannerAgentHealth;
-};
+}
 
 const ensureAgentConfigured = async () => {
   const health = await getAgentHealth();
@@ -366,6 +425,14 @@ const requestJson = async <T>(path: string, init?: RequestInit) => {
 };
 
 export async function detectAgent(): Promise<AgentStatusResponse | null> {
+  if (!isBrowser) {
+    return null;
+  }
+
+  if (!isScannerAgentReachableFromBrowser()) {
+    return null;
+  }
+
   return resolveAgentBaseUrl();
 }
 
